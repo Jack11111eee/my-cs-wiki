@@ -1,0 +1,149 @@
+/* ===== 配色与字体：按 design-refs/jacky-zhao/SPEC.md 第 6 节映射 ===== */
+:root {
+  /* 布局（实测：原站网格总宽 / 左栏宽） */
+  --vp-layout-max-width: 1400px;
+  --vp-sidebar-width: 320px;
+
+  /* 背景 */
+  --vp-c-bg: #f5eedd; /* 实测：原站 --light，纸色 */
+  --vp-c-bg-alt: #efe6d0; /* 推导：侧栏 / 导航栏 */
+  --vp-c-bg-soft: #ece2c9; /* 推导：卡片 */
+  --vp-c-bg-elv: #faf5e8; /* 推导：浮层 */
+
+  /* 文字 */
+  --vp-c-text-1: #16294e; /* 实测：原站 --dark，标题与正文主色 */
+  --vp-c-text-2: #2d4673; /* 实测：原站 --darkgray */
+  --vp-c-text-3: #9a8e76; /* 实测：原站 --gray，次要信息 */
+
+  /* 边框 */
+  --vp-c-divider: #e3d9c0; /* 实测：原站 --lightgray */
+  --vp-c-border: #e3d9c0; /* 实测 */
+  --vp-c-gutter: #e3d9c0; /* 实测 */
+
+  /* 品牌色：橙红，不用默认靛蓝 */
+  --vp-c-brand-1: #c8482b; /* 实测：原站 --tertiary */
+  --vp-c-brand-2: #b03e24; /* 推导：hover 加深 */
+  --vp-c-brand-3: #d4553a; /* 推导：浅一档 */
+  --vp-c-brand-soft: rgba(200, 72, 43, 0.14);
+
+  /* 代码 */
+  --vp-code-block-bg: #ece2c9; /* 推导 */
+  --vp-code-bg: #e3d9c0; /* 实测：原站行内代码底色 */
+
+  /* 字体：西文在前，中文黑体在后 */
+  --vp-font-family-base: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 标题衬线：西文 DM Serif Display，中文逐级回退到宋体 */
+  --wiki-font-serif: 'DM Serif Display', 'Iowan Old Style', 'Songti SC',
+    'Source Han Serif SC', 'Noto Serif SC', Georgia, serif;
+
+  /* 正文链接色（原站 --secondary，不在第 6 节变量表里，单独定义） */
+  --wiki-c-link: #284d78;
+
+  /* 首页 hero：纸色底上不要靛蓝渐变 */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #c8482b 10%, #284d78 90%);
+}
+
+.dark {
+  --vp-c-bg: #06182f; /* 实测：深藏青，不是黑 */
+  --vp-c-bg-alt: #0a1f3a; /* 推导 */
+  --vp-c-bg-soft: #122845; /* 实测：原站暗色 --lightgray */
+  --vp-c-bg-elv: #0d2440; /* 推导 */
+
+  --vp-c-text-1: #eef4fc; /* 实测 */
+  --vp-c-text-2: #caddf4; /* 实测 */
+  --vp-c-text-3: #7191b8; /* 实测 */
+
+  --vp-c-divider: #122845; /* 实测 */
+  --vp-c-border: #122845; /* 实测 */
+  --vp-c-gutter: #122845; /* 实测 */
+
+  --vp-c-brand-1: #e0552f; /* 实测：暗色下提亮 */
+  --vp-c-brand-2: #e86b48; /* 推导：暗色下 hover 提亮 */
+  --vp-c-brand-3: #c8482b; /* 推导 */
+  --vp-c-brand-soft: rgba(224, 85, 47, 0.14);
+
+  --vp-code-block-bg: #122845;
+  --vp-code-bg: #122845;
+
+  --wiki-c-link: #8fb9de; /* 实测：原站暗色 --secondary */
+
+  --vp-home-hero-name-background: linear-gradient(120deg, #e0552f 10%, #8fb9de 90%);
+}
+
+/* ===== 标题换衬线 ===== */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4,
+.vp-doc h5,
+.vp-doc h6,
+.VPHero .name,
+.VPHero .text {
+  font-family: var(--wiki-font-serif);
+  font-weight: 400;
+  color: var(--vp-c-text-1);
+}
+
+/* ===== 首页 hero 副标题：日文引文，斜体、字号略小 =====
+   自托管字体只有 latin 子集，日文假名/汉字必须单独走日文字体回退，
+   否则会落到 PingFang SC，汉字会变成中文字形。 */
+.VPHero .tagline {
+  font-family: 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', var(--vp-font-family-base);
+  font-style: italic;
+  font-size: 20px;
+  line-height: 32px;
+}
+
+/* ===== 橙红下划线链接：全站最强的识别特征 ===== */
+.vp-doc a {
+  color: var(--wiki-c-link);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--vp-c-brand-1);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* ===== 正文：中文行距放宽，列表之间留口气 ===== */
+.vp-doc {
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+.vp-doc li + li {
+  margin-top: 8px;
+}
+
+/* 正文宽 700px（第 8 节：750px 对中文偏宽）。VitePress 默认 688px 带 scoped 属性，
+   选择器权重不够，只能 !important 压过去。 */
+.VPDoc .content-container {
+  max-width: 700px !important;
+}
+
+/* ===== 首页卡片：默认是块死板的色块，加圆角和悬浮 ===== */
+.VPFeature {
+  border-radius: 14px;
+  border: 1px solid transparent;
+  transition:
+    transform 0.25s,
+    border-color 0.25s,
+    box-shadow 0.25s;
+}
+
+.VPFeature .details {
+  line-height: 1.65;
+}
+
+.VPFeature:hover {
+  transform: translateY(-4px);
+  border-color: var(--vp-c-brand-2);
+  box-shadow: 0 10px 30px rgba(200, 72, 43, 0.12);
+}
+
+.dark .VPFeature:hover {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
