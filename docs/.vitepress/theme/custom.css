@@ -84,6 +84,8 @@
 .VPHero .name,
 .VPHero .text {
   font-family: var(--wiki-font-serif);
+  /* SPEC 第 6 节写的是 700，这里故意用 400：DM Serif Display 只有 400 一个字重，
+     写 700 会触发浏览器合成加粗，把衬线笔画糊掉。已确认保持 400。 */
   font-weight: 400;
   color: var(--vp-c-text-1);
 }
@@ -94,7 +96,7 @@
 .VPHero .tagline {
   font-family: 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', var(--vp-font-family-base);
   font-style: italic;
-  font-size: 20px;
+  font-size: 16px;
   line-height: 32px;
 }
 
