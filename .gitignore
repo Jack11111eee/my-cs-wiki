@@ -8,6 +8,7 @@ docs/.vitepress/cache/
 
 # 设计参考素材，不入库
 design-refs/
+pictures/
 
 # macOS
 .DS_Store
