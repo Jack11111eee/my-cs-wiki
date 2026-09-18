@@ -2,6 +2,8 @@
 
 我的计算机经验总结。
 
+在线阅读：https://jack11111eee.github.io/my-cs-wiki/
+
 ## 目录
 
 - [科研](docs/research.md) —— 数据获取与下载、科研流程
