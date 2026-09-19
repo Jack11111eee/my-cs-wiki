@@ -53,6 +53,18 @@
   pointer-events: none;
 }
 
+/* 首页开场凝聚的画布（见 HomeCondense.vue）。
+   和 .wiki-petals 同为 26 层，但一个只在首页、一个只在正文页，不会同时有内容，
+   所以不用再分先后。要整屏——首页的粒子会从 hero 一路散到卡片下方，
+   而且首页本身比一屏矮，画布只能 fixed 铺满视口。
+   宽高由脚本按需设置。 */
+.wiki-condense {
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  pointer-events: none;
+}
+
 /* 内容抬到玻璃之上。
    不变量：玻璃 3 < 内容 4。
    右侧目录 .aside-container 是 fixed 且在 .VPContent 内部，若内容层低于玻璃，

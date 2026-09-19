@@ -31,12 +31,24 @@ const route = useRoute()
 
 const CFG = {
   curve: 1.5, // 消散曲线指数。越大，越靠近消弥线的字越"扛得住"，越往顶散得越快
-  density: 0.075, // 行宽每 1px、完全消散时的花瓣数（700px 的一行约 52 片，差不多一字一片）
+  density: 0.05, // 行宽每 1px 的横向格数（700px 的一行约 35 格）
+  maxCols: 90, // 单行横向格数上限，防止超长行炸掉
+  cellH: 11, // 纵向格子的基准高度，行高按它切行数
+  maxRows: 3, // 单行纵向格数上限
+  stagger: 0.7, // 每格的时序偏移强度。0 一起碎，1 最参差
+  maskStep: 3, // mask 台阶高度（px）。段内 alpha 恒定，段间硬跳
   fadeIn: 0.16, // 花瓣淡入速度（每帧向目标靠拢的比例）
   fadeOut: 0.1, // 淡出速度
   swayAmp: 2.5, // 左右轻微飘动幅度（px）
   spin: 0.35, // 自转角速度（rad/s）
-  maxPerLine: 140, // 单行花瓣上限，防止超长行炸掉
+}
+
+// 和 canvasui 的 GLSL hash 同款：fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)。
+// 用它而不是 Math.random()，是为了让每格的时序偏移只由格子的位置决定——
+// 同一格每帧算出来都一样，相邻两格不会同步。
+function hash2(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453
+  return s - Math.floor(s)
 }
 
 // 消散度：t = 0 刚好碰到消弥线，t = 1 屏幕最顶
@@ -82,7 +94,11 @@ function createEngine(canvas) {
     return b || 64
   }
 
-  // 行盒只在这里读一次，之后每帧纯算术
+  // 行盒只在这里读一次，之后每帧纯算术。
+  // 同时把每条行盒切成 cols × rows 的格点——花瓣不再是随机撒在行里，
+  // 而是一格一片，于是消散看起来是"按格点碎开"而不是"糊成一片"。
+  // 每格的时序偏移 d 也在这里用 hash 算好（Float32Array），
+  // 每帧再算的话 60fps × 上千格是白烧 CPU。
   function collectLines(root, sy) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(n) {
@@ -96,19 +112,40 @@ function createEngine(canvas) {
       },
     })
     const range = document.createRange()
+    let li = 0
     while (walker.nextNode()) {
       range.selectNodeContents(walker.currentNode)
       const rects = range.getClientRects()
       for (const r of rects) {
         if (r.width < 1 || r.height < 1) continue
+        const cols = Math.max(
+          1,
+          Math.min(CFG.maxCols, Math.round(r.width * CFG.density)),
+        )
+        const rows = Math.max(
+          1,
+          Math.min(CFG.maxRows, Math.round(r.height / CFG.cellH)),
+        )
+        const n = cols * rows
+        const ds = new Float32Array(n)
+        for (let k = 0; k < n; k++) {
+          const col = k % cols
+          const row = (k - col) / cols
+          ds[k] = hash2(col + li * 0.37, row + li * 0.11) * CFG.stagger
+        }
         lines.push({
           x0: r.left,
           x1: r.right,
           top: r.top + sy,
           bot: r.bottom + sy,
-          petals: [],
-          live: 0,
+          cols,
+          rows,
+          ds,
+          // 格子索引 → 花瓣。用 Map 而不是数组：格子的激活顺序由 hash 决定，
+          // 不是按下标顺序来的，数组会留一堆洞。
+          petals: new Map(),
         })
+        li++
       }
     }
   }
@@ -116,8 +153,9 @@ function createEngine(canvas) {
   function measure() {
     const sy = window.scrollY
     chromeBottom = readChromeBottom()
-    // 正文页是 .vp-doc，首页是 .VPHome，两者只会存在一个
-    const el = document.querySelector('.VPDoc .vp-doc') || document.querySelector('.VPHome')
+    // 只认正文页。首页永不滚动（内容比一屏矮），顶栏带消散对它没有意义；
+    // 而且首页的 mask 归 HomeCondense.vue 管，这里再插一手两边会打架。
+    const el = document.querySelector('.VPDoc .vp-doc')
     target = el ? { el, docTop: el.getBoundingClientRect().top + sy } : null
     lines = []
     if (target) collectLines(target.el, sy)
@@ -250,7 +288,11 @@ function createEngine(canvas) {
 
   /* ---------- mask ---------- */
 
-  // 用 8 段折线逼近 1 − t^curve 这条曲线，喂给 linear-gradient。
+  // 用 maskStep 高的硬台阶逼近 1 − t^curve 这条曲线，喂给 linear-gradient。
+  // 每一段内部 alpha 恒定、段与段之间直接跳变，所以文字是一小条一小条地消失，
+  // 而不是连续淡出——这就是"逐格碎开"的观感来源。
+  // 台阶取段的下沿（靠消弥线那一端）的值，于是最靠下的那一段 alpha 正好是 1，
+  // 贴着消弥线的字始终完整。
   // 位置全部换算成元素自身坐标；元素跟着页面滚，所以每帧要补 scrollY。
   function writeMask(sy) {
     if (!target) return
@@ -265,13 +307,17 @@ function createEngine(canvas) {
       return
     }
     const ramp = chromeBottom
-    const N = 8
+    const yStart = Math.max(0, d - ramp)
+    const span = Math.max(1, d - yStart)
+    const bands = Math.max(1, Math.round(span / CFG.maskStep))
     const stops = []
-    // i 从 N 到 0：本地 y 递增，正好是 linear-gradient 要求的顺序
-    for (let i = N; i >= 0; i--) {
-      const t = i / N
-      const y = Math.max(0, Math.round(d - t * ramp))
-      stops.push(`rgba(0,0,0,${(1 - dissolveAt(t)).toFixed(3)}) ${y}px`)
+    for (let i = 0; i < bands; i++) {
+      const y0 = Math.round(yStart + (span * i) / bands)
+      const y1 = Math.round(yStart + (span * (i + 1)) / bands)
+      const a = (1 - dissolveAt((d - y1) / ramp)).toFixed(3)
+      // 同一段的首尾两个 stop 值相同 → 段内平坦；相邻段的边界处值跳变 → 硬边
+      stops.push(`rgba(0,0,0,${a}) ${y0}px`)
+      stops.push(`rgba(0,0,0,${a}) ${y1}px`)
     }
     stops.push('rgba(0,0,0,1) 100%')
     const v = `linear-gradient(to bottom, ${stops.join(', ')})`
@@ -285,10 +331,16 @@ function createEngine(canvas) {
 
   // 花瓣记的是「在本行里的相对位置」，不是屏幕坐标——
   // 这样行盒往上走时花瓣自动跟着走。
-  function makePetal() {
+  // fx/fy 由格子下标算出来（格中心 + hash 抖动），不再是纯随机，
+  // 所以花瓣是钉在格点上的。
+  function makePetal(ln, k) {
+    const col = k % ln.cols
+    const row = (k - col) / ln.cols
+    const jx = hash2(col * 1.7 + row * 0.3, row * 9.1 + 4.2)
+    const jy = hash2(col * 5.5 + row * 0.7, row * 2.9 + 8.3)
     return {
-      fx: Math.random(), // 行内横向 0..1
-      fy: 0.15 + Math.random() * 0.85, // 行内纵向 0..1
+      fx: (col + 0.15 + jx * 0.7) / ln.cols,
+      fy: (row + 0.15 + jy * 0.7) / ln.rows,
       sp: sprites.length ? (Math.random() * sprites.length) | 0 : 0, // 贴图编号
       s: (4.5 + Math.random() * 5.5) * sizeScale,
       rot: Math.random() * Math.PI * 2,
@@ -302,26 +354,31 @@ function createEngine(canvas) {
     }
   }
 
+  // 逐格算消散进度。D 是行级消散度（0 贴着消弥线，1 屏幕最顶），
+  // 每格再按自己的时序偏移 d 错开：
+  //   tc = (D - d) / (1 - d)  —— 这一格的消散进度
+  // d 越大越晚碎，所以靠近消弥线的格子先碎，越往顶越晚，参差感就是这么来的。
+  // 花瓣的透明度直接跟 tc 走（缓出），不再是非 0 即 1 的开关，
+  // 于是每一格是"渐显"而不是"啪地出现"。
   function updateLines(sy) {
     const ramp = chromeBottom
     for (const ln of lines) {
-      const t = (chromeBottom - (ln.top - sy)) / ramp
-      const D = dissolveAt(t)
-      const want = D > 0
-        ? Math.min(CFG.maxPerLine, Math.round(D * (ln.x1 - ln.x0) * CFG.density))
-        : 0
-
-      while (ln.petals.length < want) ln.petals.push(makePetal())
-      ln.live = want
-
-      for (let i = 0; i < ln.petals.length; i++) {
-        const p = ln.petals[i]
-        const goal = i < want ? 1 : 0
+      const D = dissolveAt((chromeBottom - (ln.top - sy)) / ramp)
+      // 整行还在消弥线以下、且已经没有残留花瓣：这一行没活干
+      if (D <= 0 && ln.petals.size === 0) continue
+      const n = ln.cols * ln.rows
+      for (let k = 0; k < n; k++) {
+        const d = ln.ds[k]
+        const tc = d >= 1 ? 1 : (D - d) / (1 - d)
+        const goal = tc > 0 ? 1 - Math.pow(1 - Math.min(tc, 1), 3) : 0
+        let p = ln.petals.get(k)
+        if (goal > 0 && !p) {
+          p = makePetal(ln, k)
+          ln.petals.set(k, p)
+        }
+        if (!p) continue
         p.a += (goal - p.a) * (goal > p.a ? CFG.fadeIn : CFG.fadeOut)
-      }
-      // 尾巴上已经淡透的收掉（want 之后的全在尾巴上，所以从后往前弹是安全的）
-      while (ln.petals.length > want && ln.petals[ln.petals.length - 1].a < 0.005) {
-        ln.petals.pop()
+        if (p.a < 0.005 && goal === 0) ln.petals.delete(k)
       }
     }
   }
@@ -331,12 +388,12 @@ function createEngine(canvas) {
     ctx.clearRect(0, 0, W, H)
     const t = performance.now() / 1000
     for (const ln of lines) {
-      if (!ln.petals.length) continue
+      if (ln.petals.size === 0) continue
       const lineY = ln.top - sy
       const h = ln.bot - ln.top
       if (lineY > stripH + 40 || lineY + h < -40) continue // 整行在画布外
       const w = ln.x1 - ln.x0
-      for (const p of ln.petals) {
+      for (const p of ln.petals.values()) {
         if (p.a < 0.01) continue
         const x = ln.x0 + p.fx * w + Math.sin(t * p.sw + p.swp) * CFG.swayAmp
         const y = lineY + p.fy * h
@@ -361,7 +418,7 @@ function createEngine(canvas) {
     for (const ln of lines) {
       const y = ln.top - sy
       if (y > H + 80 || ln.bot - sy < -80) continue
-      if (ln.petals.length) return true
+      if (ln.petals.size) return true
       if (y < chromeBottom) return true
     }
     return false
