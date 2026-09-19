@@ -41,10 +41,14 @@
    z-index 26：要压过内容 4 和侧栏 25（花瓣是从正文里飞出来的，被侧栏盖住就不对了），
    又要在顶栏 30 之下（花瓣该从导航链接背后飘过去）。
    注意 26 也高于 VitePress 的 footer 10 和 local-nav 20，这两处无所谓。
-   画布本身不参与交互，也不该被顶栏的模糊采到——它在玻璃 3 之上，不受影响。 */
+   画布本身不参与交互，也不该被顶栏的模糊采到——它在玻璃 3 之上，不受影响。
+
+   只有顶部一条，不是整屏：花瓣不可能出现在别处（推导见 PetalDissolve.vue 的
+   measure()），宽度和高度由脚本按需设置。 */
 .wiki-petals {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
   z-index: 26;
   pointer-events: none;
 }
@@ -76,10 +80,12 @@
   --wiki-accent: #cf5079;
 
   /* 花瓣配色：a 花心深、b 花瓣中、c 边缘浅。
-     PetalDissolve.vue 用 getComputedStyle 读这三个值来画贴图，改这里就够。 */
-  --wiki-petal-a: #ef9dbb;
-  --wiki-petal-b: #f8c9dc;
-  --wiki-petal-c: #fff2f7;
+     PetalDissolve.vue 用 getComputedStyle 读这三个值来画贴图，改这里就够。
+     白天底图本身就是高调粉白，花瓣太浅会直接糊进背景里看不见，
+     所以整体比"真实樱花色"要压深一档。 */
+  --wiki-petal-a: #d9628b;
+  --wiki-petal-b: #ee97b8;
+  --wiki-petal-c: #fbd0e0;
 
   /* 布局：正文栏 = layout-max-width − sidebar-width − 64 − 256 − 64
      = 1320 − 236 − 384 = 700px，正好等于 .content-container 的上限。 */

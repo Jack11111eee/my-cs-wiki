@@ -2,23 +2,24 @@
 /* 顶栏下方的「花瓣消散」。
    ---------------------------------------------------------------------------
    要解决的问题：顶栏是透明的，正文滚到它下面就会和导航链接糊在一起。
-   以前靠顶栏自己的 backdrop-filter 把正文糊掉（custom.css 里那段注释）。
-   现在改成：正文在进入顶栏之前就消散掉，并在这个边界上炸出花瓣。
+   以前靠顶栏自己的 backdrop-filter 把正文糊掉。现在改成：正文在顶栏这一带
+   一点点散成花瓣，越往上散得越彻底，到屏幕最顶上完全散尽。
+
+   消散线 = 顶栏底边。消弥梯度从这条线**往上**铺，正好铺满顶栏那 64px：
+     刚碰到线的字     —— 还很清楚，只掉几片花瓣
+     线往上走一半     —— 半消弥，字还在但明显在散
+     屏幕最顶         —— 字没了，只剩花瓣云，再淡出
+   所以静止时顶栏下方不会平白少一行，文字贴着顶栏底边也是完整的。
+
+   花瓣是**挂在行盒上**的，不是钉在屏幕上：每片花瓣记的是「在本行里的相对位置」，
+   每帧按行盒当前的位置算屏幕坐标。于是花瓣天然跟着文字一起往上走，
+   就像文字本身变成了花瓣；往回滚时行的消散度降下来，花瓣就淡回去、文字重新凝聚。
 
    为什么用 mask 而不是把每个字包成 <span>：
-   逐字包 span 能拿到最精确的碎裂效果，但会牵动一堆东西——拉丁文断行、
-   ::marker 列表序号、<a> 下划线、行内 code 底色、代码块底色，每个都得单独打补丁，
-   而且动过 DOM 之后 VitePress 将来开本地搜索会打坏它的高亮。
-   mask 是一次性把所有东西（字、序号、下划线、底色、图片）统一吃掉，且完全不动 DOM。
-   花瓣位置改用 Range.getClientRects() 拿真实字符行盒，所以花瓣照样是从字上飞出来的。
-
-   三层结构：
-     1. mask      —— 挂在正文容器上，位置每帧按 scrollY 重算，钉死在顶栏底边。
-                     渐隐带宽 = f(滚动速度)：静止收窄到 8px（顶栏底下那点反正看不见），
-                     滚得越快带越宽（上限 48px）。滚得越猛，字被啃得越狠。
-     2. 花瓣       —— 独立 canvas（z-index 26：压过内容 4 和侧栏 25，在顶栏 30 之下）。
-     3. 性能       —— 行盒在 measure() 时一次性算成文档坐标缓存下来，每帧只做减法，
-                     不碰 getBoundingClientRect，不触发 layout。
+   逐字包 span 能拿到最精确的碎裂效果，但会牵动拉丁文断行、::marker 列表序号、
+   <a> 下划线、行内 code 底色、代码块底色，每个都得单独打补丁，而且动过 DOM
+   之后将来开本地搜索会打坏它的高亮。mask 一次性把所有东西统一吃掉，且不动 DOM。
+   花瓣位置改用 Range.getClientRects() 拿真实字符行盒，所以照样是从字上飞出来的。
 
    可访问性：prefers-reduced-motion 下整个不启动，由 custom.css 把顶栏的 blur 放回来。
    窄屏（<960px）不启用——顶栏在窄屏是不透明的，正文不会从它下面过。 */
@@ -28,16 +29,21 @@ import { useRoute } from 'vitepress'
 const canvasEl = ref(null)
 const route = useRoute()
 
-/* 数值都按「视口 px / 秒」调 */
 const CFG = {
-  bandMin: 8, // 静止时的柔边宽度
-  bandMax: 48, // 最快时的消散带宽度
-  bandPerSpeed: 0.055, // 带宽 = 速度 × 这个系数
-  bandEase: 0.2, // 带宽变化的平滑系数
-  maxPetals: 240, // 同屏花瓣上限
-  maxEmitPerFrame: 14, // 每帧最多补几片，防止快速滚动时炸开
-  gravity: 95,
-  drag: 1.1,
+  curve: 1.5, // 消散曲线指数。越大，越靠近消弥线的字越"扛得住"，越往顶散得越快
+  density: 0.075, // 行宽每 1px、完全消散时的花瓣数（700px 的一行约 52 片，差不多一字一片）
+  fadeIn: 0.16, // 花瓣淡入速度（每帧向目标靠拢的比例）
+  fadeOut: 0.1, // 淡出速度
+  swayAmp: 2.5, // 左右轻微飘动幅度（px）
+  spin: 0.35, // 自转角速度（rad/s）
+  maxPerLine: 140, // 单行花瓣上限，防止超长行炸掉
+}
+
+// 消散度：t = 0 刚好碰到消弥线，t = 1 屏幕最顶
+function dissolveAt(t) {
+  if (t <= 0) return 0
+  if (t >= 1) return 1
+  return Math.pow(t, CFG.curve)
 }
 
 function createEngine(canvas) {
@@ -48,19 +54,15 @@ function createEngine(canvas) {
   let dpr = 1
   let W = 0
   let H = 0
+  let stripH = 0 // 画布高度：花瓣只可能出现在顶部这一条，见 measure()
   let target = null // { el, docTop }  正文容器，只会有一个
-  let nodes = [] // [{ lines:[{x0,x1,top,bot}], emitted }]  文档坐标
+  let lines = [] // [{ x0,x1,top,bot, petals:[], live }]  行盒，文档坐标
   let chromeBottom = 64
   let sprites = []
   let sizeScale = 1
-  let petals = []
   let raf = 0
   let running = false // 主循环在跑
   let active = false // 效果处于启用状态（可能正闲着没在跑循环）
-  let lastT = 0
-  let lastScrollY = window.scrollY
-  let smoothVel = 0 // px/s，正数 = 向下滚
-  let band = CFG.bandMin
   let lastMaskKey = ''
   let remeasureTimer = 0
   let ro = null
@@ -97,17 +99,17 @@ function createEngine(canvas) {
     while (walker.nextNode()) {
       range.selectNodeContents(walker.currentNode)
       const rects = range.getClientRects()
-      const lines = []
       for (const r of rects) {
         if (r.width < 1 || r.height < 1) continue
-        lines.push({ x0: r.left, x1: r.right, top: r.top + sy, bot: r.bottom + sy })
+        lines.push({
+          x0: r.left,
+          x1: r.right,
+          top: r.top + sy,
+          bot: r.bottom + sy,
+          petals: [],
+          live: 0,
+        })
       }
-      if (!lines.length) continue
-      // 首次测量时把已经在顶栏底下的行标记为「已发射」，避免加载瞬间喷一屏花瓣
-      const rest = chromeBottom + CFG.bandMin
-      let emitted = 0
-      while (emitted < lines.length && lines[emitted].top - sy < rest) emitted++
-      nodes.push({ lines, emitted })
     }
   }
 
@@ -117,7 +119,7 @@ function createEngine(canvas) {
     // 正文页是 .vp-doc，首页是 .VPHome，两者只会存在一个
     const el = document.querySelector('.VPDoc .vp-doc') || document.querySelector('.VPHome')
     target = el ? { el, docTop: el.getBoundingClientRect().top + sy } : null
-    nodes = []
+    lines = []
     if (target) collectLines(target.el, sy)
     lastMaskKey = ''
     if (ro) ro.disconnect()
@@ -125,6 +127,16 @@ function createEngine(canvas) {
       ro = new ResizeObserver(scheduleRemeasure)
       ro.observe(target.el)
     }
+
+    // 画布只需要盖住顶部一条。
+    // 一行只有 D > 0 时才有花瓣，也就是它的顶边必须已经越过消弥线；
+    // 花瓣的 y 又在 [行顶, 行底] 之间，所以花瓣不可能跑到
+    // chromeBottom + 最高的行高 以下。整屏画布白算 6 倍面积，还会让
+    // 合成器每帧重传一整屏纹理（实测能掉到 40fps 并偶发 100ms 长帧）。
+    let maxLineH = 0
+    for (const ln of lines) maxLineH = Math.max(maxLineH, ln.bot - ln.top)
+    stripH = Math.min(window.innerHeight, Math.ceil(chromeBottom + maxLineH + 12))
+    resizeCanvas()
   }
 
   function scheduleRemeasure() {
@@ -174,7 +186,6 @@ function createEngine(canvas) {
       g.beginPath()
       g.moveTo(0, 0)
       g.lineTo(0, -r)
-      // 两侧的分叉
       for (const t of [0.5, 0.78]) {
         const y = -r * t
         const len = r * (1 - t) * 0.75
@@ -208,7 +219,7 @@ function createEngine(canvas) {
       sprites = [snowSprite(S, b, c), snowSprite(S, a, c), snowSprite(S, c, c)]
       // 冰晶的六条臂铺满整张贴图，花瓣只占贴图中间一条，
       // 同样尺寸下冰晶看着要大一圈，所以夜里整体缩一档
-      sizeScale = 0.6
+      sizeScale = 0.8
     } else {
       const a = v('--wiki-petal-a') || '#ef9dbb'
       const b = v('--wiki-petal-b') || '#f8c9dc'
@@ -226,156 +237,149 @@ function createEngine(canvas) {
   /* ---------- 画布 ---------- */
 
   function resizeCanvas() {
+    if (!stripH) stripH = Math.ceil(chromeBottom + 60)
     dpr = Math.min(2, window.devicePixelRatio || 1)
     W = window.innerWidth
     H = window.innerHeight
     canvas.width = Math.round(W * dpr)
-    canvas.height = Math.round(H * dpr)
+    canvas.height = Math.round(stripH * dpr)
     canvas.style.width = W + 'px'
-    canvas.style.height = H + 'px'
+    canvas.style.height = stripH + 'px'
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
   /* ---------- mask ---------- */
 
+  // 用 8 段折线逼近 1 − t^curve 这条曲线，喂给 linear-gradient。
+  // 位置全部换算成元素自身坐标；元素跟着页面滚，所以每帧要补 scrollY。
   function writeMask(sy) {
     if (!target) return
-    const b = Math.max(2, Math.round(band))
-    // d = 顶栏底边在元素自身坐标系里的位置。元素跟着页面滚，所以每帧要补 scrollY。
-    const d = Math.round(chromeBottom - (target.docTop - sy))
-    const key = d + ':' + b
-    if (key === lastMaskKey) return
-    lastMaskKey = key
-    const v = `linear-gradient(to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) ${d}px, rgba(0,0,0,1) ${d + b}px, rgba(0,0,0,1) 100%)`
+    const d = chromeBottom - (target.docTop - sy)
+    if (d <= 0) {
+      // 正文整个还在消弥线以下，不需要 mask
+      if (lastMaskKey !== 'off') {
+        lastMaskKey = 'off'
+        target.el.style.maskImage = ''
+        target.el.style.webkitMaskImage = ''
+      }
+      return
+    }
+    const ramp = chromeBottom
+    const N = 8
+    const stops = []
+    // i 从 N 到 0：本地 y 递增，正好是 linear-gradient 要求的顺序
+    for (let i = N; i >= 0; i--) {
+      const t = i / N
+      const y = Math.max(0, Math.round(d - t * ramp))
+      stops.push(`rgba(0,0,0,${(1 - dissolveAt(t)).toFixed(3)}) ${y}px`)
+    }
+    stops.push('rgba(0,0,0,1) 100%')
+    const v = `linear-gradient(to bottom, ${stops.join(', ')})`
+    if (v === lastMaskKey) return
+    lastMaskKey = v
     target.el.style.maskImage = v
     target.el.style.webkitMaskImage = v
   }
 
   /* ---------- 花瓣 ---------- */
 
-  function push(x, y, carry) {
-    if (petals.length >= CFG.maxPetals) petals.shift()
-    const a = Math.random() * Math.PI * 2
-    const burst = 20 + Math.random() * 70
-    petals.push({
-      x,
-      y,
-      vx: Math.cos(a) * burst * 0.8,
-      // 顺滚动方向被带走（carry 已经取过反号），再叠一点上抛
-      vy: Math.sin(a) * burst * 0.55 + carry * 0.45 - 30,
-      s: (5 + Math.random() * 6) * sizeScale,
+  // 花瓣记的是「在本行里的相对位置」，不是屏幕坐标——
+  // 这样行盒往上走时花瓣自动跟着走。
+  function makePetal() {
+    return {
+      fx: Math.random(), // 行内横向 0..1
+      fy: 0.15 + Math.random() * 0.85, // 行内纵向 0..1
+      sp: sprites.length ? (Math.random() * sprites.length) | 0 : 0, // 贴图编号
+      s: (4.5 + Math.random() * 5.5) * sizeScale,
       rot: Math.random() * Math.PI * 2,
-      vrot: (Math.random() - 0.5) * 5,
-      flip: 0.8 + Math.random() * 2.4,
-      flipPhase: Math.random() * Math.PI * 2,
-      sway: 1.2 + Math.random() * 2.2,
-      swayPhase: Math.random() * Math.PI * 2,
-      swayAmp: 14 + Math.random() * 26,
-      life: 0,
-      maxLife: 1.1 + Math.random() * 1.0,
-      sprite: sprites[(Math.random() * sprites.length) | 0],
-    })
+      dir: Math.random() < 0.5 ? -1 : 1,
+      sw: 0.5 + Math.random() * 1.1, // 左右摆动频率
+      swp: Math.random() * Math.PI * 2,
+      flip: 0.6 + Math.random() * 1.6, // 翻转频率
+      fp: Math.random() * Math.PI * 2,
+      base: 0.6 + Math.random() * 0.4, // 每片透明度略有差异
+      a: 0,
+    }
   }
 
-  function spawn(lines, sy, carry) {
-    let budget = CFG.maxEmitPerFrame
+  function updateLines(sy) {
+    const ramp = chromeBottom
     for (const ln of lines) {
-      const w = ln.x1 - ln.x0
-      if (w < 1) continue
-      const count = Math.max(2, Math.min(9, Math.round(w / 26)))
-      for (let i = 0; i < count && budget > 0; i++, budget--) {
-        push(
-          ln.x0 + Math.random() * w,
-          ln.top - sy + Math.random() * (ln.bot - ln.top),
-          carry,
-        )
+      const t = (chromeBottom - (ln.top - sy)) / ramp
+      const D = dissolveAt(t)
+      const want = D > 0
+        ? Math.min(CFG.maxPerLine, Math.round(D * (ln.x1 - ln.x0) * CFG.density))
+        : 0
+
+      while (ln.petals.length < want) ln.petals.push(makePetal())
+      ln.live = want
+
+      for (let i = 0; i < ln.petals.length; i++) {
+        const p = ln.petals[i]
+        const goal = i < want ? 1 : 0
+        p.a += (goal - p.a) * (goal > p.a ? CFG.fadeIn : CFG.fadeOut)
+      }
+      // 尾巴上已经淡透的收掉（want 之后的全在尾巴上，所以从后往前弹是安全的）
+      while (ln.petals.length > want && ln.petals[ln.petals.length - 1].a < 0.005) {
+        ln.petals.pop()
       }
     }
   }
 
-  function draw(dt) {
+  function draw(sy) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
     const t = performance.now() / 1000
-    for (let i = petals.length - 1; i >= 0; i--) {
-      const p = petals[i]
-      p.life += dt
-      if (p.life >= p.maxLife) {
-        petals.splice(i, 1)
-        continue
+    for (const ln of lines) {
+      if (!ln.petals.length) continue
+      const lineY = ln.top - sy
+      const h = ln.bot - ln.top
+      if (lineY > stripH + 40 || lineY + h < -40) continue // 整行在画布外
+      const w = ln.x1 - ln.x0
+      for (const p of ln.petals) {
+        if (p.a < 0.01) continue
+        const x = ln.x0 + p.fx * w + Math.sin(t * p.sw + p.swp) * CFG.swayAmp
+        const y = lineY + p.fy * h
+        ctx.globalAlpha = p.a * p.base
+        ctx.translate(x, y)
+        ctx.rotate(p.rot + t * CFG.spin * p.dir)
+        // 用纵向压缩模拟花瓣轻微翻转
+        ctx.scale(1, Math.cos(t * p.flip + p.fp) * 0.6 + 0.4)
+        ctx.drawImage(sprites[p.sp], -p.s, -p.s, p.s * 2, p.s * 2)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
-      p.vy += CFG.gravity * dt
-      const k = Math.exp(-CFG.drag * dt)
-      p.vx *= k
-      p.vy *= k
-      p.x += (p.vx + Math.sin(t * p.sway + p.swayPhase) * p.swayAmp) * dt
-      p.y += p.vy * dt
-      p.rot += p.vrot * dt
-      const u = p.life / p.maxLife
-      const alpha = u < 0.12 ? u / 0.12 : u > 0.55 ? 1 - (u - 0.55) / 0.45 : 1
-      ctx.globalAlpha = Math.max(0, alpha) * 0.95
-      ctx.translate(p.x, p.y)
-      ctx.rotate(p.rot)
-      // 用横向压缩模拟花瓣翻转
-      ctx.scale(Math.cos(t * p.flip + p.flipPhase) * 0.75 + 0.25, 1)
-      ctx.drawImage(p.sprite, -p.s, -p.s, p.s * 2, p.s * 2)
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
     ctx.globalAlpha = 1
   }
 
   /* ---------- 主循环 ---------- */
 
-  function frame(now) {
+  // 有没有活干：视口附近还有花瓣在淡出，或者有行正处在消散区间里。
+  // 只算视口附近的行——已经滚到上面去的行，D 恒为 1、花瓣一直留着（这样往回滚
+  // 时能直接凝聚回来），但它们不在画面上，不该让主循环一直空转。
+  function busy(sy) {
+    for (const ln of lines) {
+      const y = ln.top - sy
+      if (y > H + 80 || ln.bot - sy < -80) continue
+      if (ln.petals.length) return true
+      if (y < chromeBottom) return true
+    }
+    return false
+  }
+
+  function frame() {
     raf = requestAnimationFrame(frame)
-    const dt = Math.min(0.033, (now - lastT) / 1000 || 0.016)
-    lastT = now
-
     const sy = window.scrollY
-    const dy = sy - lastScrollY
-    lastScrollY = sy
-    smoothVel += (dy / dt - smoothVel) * 0.25
-    const speed = Math.abs(smoothVel)
-
-    const targetBand = Math.min(
-      CFG.bandMax,
-      Math.max(CFG.bandMin, speed * CFG.bandPerSpeed),
-    )
-    band += (targetBand - band) * CFG.bandEase
-
-    // 先读（全是算术），后写，中间不夹 style 写入
-    const eatY = chromeBottom + band
-    const restY = chromeBottom + CFG.bandMin
-    const emit = []
-    for (const n of nodes) {
-      let hi = 0
-      while (hi < n.lines.length && n.lines[hi].top - sy < eatY) hi++
-      if (hi > n.emitted) {
-        for (let i = n.emitted; i < hi; i++) emit.push(n.lines[i])
-        n.emitted = hi
-      } else if (hi < n.emitted) {
-        // 往回滚时把游标退回来，但要退回柔边之外，否则边界上会反复补花瓣
-        let lo = 0
-        while (lo < n.lines.length && n.lines[lo].top - sy < restY) lo++
-        if (lo < n.emitted) n.emitted = lo
-      }
-    }
-
-    if (emit.length && sprites.length) {
-      spawn(emit, sy, Math.max(-420, Math.min(420, -smoothVel * 0.5)))
-    }
-
     writeMask(sy)
-    draw(dt)
+    updateLines(sy)
+    draw(sy)
 
-    if (!petals.length && band <= CFG.bandMin + 0.5 && speed < 6) stop()
+    if (!busy(sy)) stop()
   }
 
   function start() {
     if (running) return
     running = true
-    lastT = performance.now()
-    lastScrollY = window.scrollY
     raf = requestAnimationFrame(frame)
   }
 
@@ -397,8 +401,7 @@ function createEngine(canvas) {
 
   function enable() {
     active = true
-    resizeCanvas()
-    measure()
+    measure() // 里面会算 stripH 并 resizeCanvas
     buildSprites()
     start()
   }
@@ -406,7 +409,7 @@ function createEngine(canvas) {
   function disable() {
     active = false
     stop()
-    petals = []
+    lines = []
     if (target) {
       target.el.style.maskImage = ''
       target.el.style.webkitMaskImage = ''
@@ -458,7 +461,6 @@ function createEngine(canvas) {
     resync,
     destroy() {
       disable()
-      stop()
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onResize)
       reduceMotion.removeEventListener('change', onResize)
