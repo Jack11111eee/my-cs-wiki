@@ -9,5 +9,8 @@ docs/.vitepress/cache/
 # 设计参考素材，不入库
 design-refs/
 
+# 图片母版不入库（主题用 WebP，PNG 仅本地留档）
+pictures/*.png
+
 # macOS
 .DS_Store
