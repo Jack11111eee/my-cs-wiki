@@ -168,6 +168,27 @@
   }
 }
 
+/* 顶栏里导航链接那一段（.content-body）自带一层实色底 var(--vp-nav-bg-color)，
+   和顶栏其余部分的半透明 --wiki-bar 有色差，会在顶栏中间显出一条色带。
+   改成透明，让整条顶栏统一走 --wiki-bar。 */
+.VPNavBar:not(.home.top) .content-body {
+  background-color: transparent !important;
+}
+
+/* 导航链接的反馈挪到悬停时才出现，平时顶栏没有色块。
+   .VPNavBarMenuLink 的 scoped 样式写了 line-height: var(--vp-nav-height)，
+   盒子会撑满整条顶栏（64px），直接加底色是一大块；这里压到 32px 做圆角小块。 */
+.VPNavBarMenuLink {
+  height: 32px;
+  line-height: 32px;
+  border-radius: 8px;
+  transition: color 0.25s, background-color 0.25s !important;
+}
+
+.VPNavBarMenuLink:hover {
+  background-color: var(--vp-c-brand-soft);
+}
+
 /* 桌面端侧栏透明，改用右边框分隔（设计稿就是窄栏 + 一条细线）。
    窄屏时它是抽屉，需要可读底色，所以只在 ≥960px 透明。 */
 @media (min-width: 960px) {
