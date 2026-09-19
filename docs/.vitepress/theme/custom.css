@@ -37,6 +37,18 @@
   transition: background-color 0.6s ease;
 }
 
+/* 花瓣画布（见 PetalDissolve.vue）。
+   z-index 26：要压过内容 4 和侧栏 25（花瓣是从正文里飞出来的，被侧栏盖住就不对了），
+   又要在顶栏 30 之下（花瓣该从导航链接背后飘过去）。
+   注意 26 也高于 VitePress 的 footer 10 和 local-nav 20，这两处无所谓。
+   画布本身不参与交互，也不该被顶栏的模糊采到——它在玻璃 3 之上，不受影响。 */
+.wiki-petals {
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  pointer-events: none;
+}
+
 /* 内容抬到玻璃之上。
    不变量：玻璃 3 < 内容 4。
    右侧目录 .aside-container 是 fixed 且在 .VPContent 内部，若内容层低于玻璃，
@@ -62,6 +74,12 @@
   --wiki-panel-hover: rgba(255, 255, 255, 0.88);
   --wiki-link: #a83254;
   --wiki-accent: #cf5079;
+
+  /* 花瓣配色：a 花心深、b 花瓣中、c 边缘浅。
+     PetalDissolve.vue 用 getComputedStyle 读这三个值来画贴图，改这里就够。 */
+  --wiki-petal-a: #ef9dbb;
+  --wiki-petal-b: #f8c9dc;
+  --wiki-petal-c: #fff2f7;
 
   /* 布局：正文栏 = layout-max-width − sidebar-width − 64 − 256 − 64
      = 1320 − 236 − 384 = 700px，正好等于 .content-container 的上限。 */
@@ -127,6 +145,11 @@
   --wiki-link: #8fb8ee;
   --wiki-accent: #ff9147;
 
+  /* 雪夜飘的是冰晶不是花瓣，所以走冷白/冰蓝 */
+  --wiki-petal-a: #9fc2f0;
+  --wiki-petal-b: #cfe0ff;
+  --wiki-petal-c: #ffffff;
+
   --vp-c-bg: #060d20;
   --vp-c-bg-alt: var(--wiki-panel);
   --vp-c-bg-soft: var(--wiki-panel);
@@ -172,6 +195,16 @@
 @media (min-width: 960px) {
   .VPNavBar:not(.home.top) {
     background-color: transparent !important;
+  }
+}
+
+/* 正文压到顶栏下面时不再用模糊糊掉，而是由 PetalDissolve.vue 在顶栏底边把它
+   mask 掉、并在边界上炸出花瓣（见 docs/.vitepress/theme/PetalDissolve.vue）。
+   所以这里默认不挂 backdrop-filter。
+   只有在「减弱动态效果」下——那时花瓣消散整个不启动——才把模糊放回来兜底，
+   否则正文会毫无遮挡地和导航链接糊在一起。 */
+@media (min-width: 960px) and (prefers-reduced-motion: reduce) {
+  .VPNavBar:not(.home.top) {
     backdrop-filter: blur(10px) saturate(1.2);
     -webkit-backdrop-filter: blur(10px) saturate(1.2);
   }
@@ -209,10 +242,30 @@
 
 /* 侧栏顶部那块 sticky 遮罩（.curtain）本来靠 --wiki-bar 遮住滚上去的侧栏项。
    但它在顶栏下面（.VPSidebar z-index 25 < 顶栏 30），顶栏透明后这层白会透出来，
-   在「my-cs-wiki」那一段叠成一块更白的方块。改成透明，遮罩的活儿交给顶栏的
-   backdrop-filter——两者位置完全重合（都是顶部 64px）。 */
+   在「my-cs-wiki」那一段叠成一块更白的方块。改成透明，遮罩的活儿交给下面的 mask。
+
+   侧栏和右侧目录都是 position: fixed，所以 mask 的坐标系直接就是视口坐标——
+   不需要像正文那样每帧补 scrollY，一条静态渐变就够了。
+   只做桌面端：窄屏时 .VPSidebar 是覆盖全屏的抽屉，它的顶部并不在顶栏底下，
+   套上这个 mask 会把抽屉第一项削掉。 */
 .VPSidebar .curtain {
   background-color: transparent !important;
+}
+
+@media (min-width: 960px) {
+  .VPSidebar {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 60px, #000 68px, #000 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, transparent 60px, #000 68px, #000 100%);
+  }
+}
+
+/* 右侧目录同理。.aside-container 有 padding-top: nav + 48px，
+   平时内容根本不到顶栏底下，只有目录长到要自己滚动时这个 mask 才起作用。 */
+@media (min-width: 960px) {
+  .aside-container {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 60px, #000 68px, #000 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, transparent 60px, #000 68px, #000 100%);
+  }
 }
 
 /* 右侧目录底部的渐隐遮罩同理，用模糊兜住滚过去的内容。 */
