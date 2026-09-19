@@ -161,10 +161,19 @@
 /* 顶栏。
    .VPNavBar:not(.home) 和 .VPNavBar.has-sidebar .title 是 scoped 选择器（权重 0,3,0），
    普通规则压不过，必须 !important。
-   保留 :not(.home.top)：VitePress 故意让首页顶部的顶栏透明，否则 hero 会被切一条。 */
+   保留 :not(.home.top)：VitePress 故意让首页顶部的顶栏透明，否则 hero 会被切一条。
+
+   顶栏为什么必须全透明：顶栏画在 .wiki-glass（z-index 3）之上，玻璃已经铺了
+   一层 rgba(255,250,251,0.68) 的白。顶栏再叠一层 --wiki-bar(0.72)，两层相乘
+   就是 91% 的白，而下方正文区只有玻璃那一层 68% —— 顶栏于是成了一条明显更白
+   的带子。所以这里 background 设成透明，顶栏只保留自己的 backdrop-filter，
+   和玻璃同款模糊。这样顶栏和正文的白色量完全一致，只差底图本身。
+   滚动时正文压到顶栏下面，由这层 backdrop-filter 糊掉。 */
 @media (min-width: 960px) {
   .VPNavBar:not(.home.top) {
-    background-color: var(--wiki-bar) !important;
+    background-color: transparent !important;
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
   }
 }
 
@@ -198,10 +207,12 @@
   }
 }
 
-/* 侧栏顶部那块 sticky 遮罩要保持不透明——它的作用是遮住滚上去的侧栏项，
-   改透明会让条目从遮罩带里透出来。 */
+/* 侧栏顶部那块 sticky 遮罩（.curtain）本来靠 --wiki-bar 遮住滚上去的侧栏项。
+   但它在顶栏下面（.VPSidebar z-index 25 < 顶栏 30），顶栏透明后这层白会透出来，
+   在「my-cs-wiki」那一段叠成一块更白的方块。改成透明，遮罩的活儿交给顶栏的
+   backdrop-filter——两者位置完全重合（都是顶部 64px）。 */
 .VPSidebar .curtain {
-  background-color: var(--wiki-bar) !important;
+  background-color: transparent !important;
 }
 
 /* 右侧目录底部的渐隐遮罩同理，用模糊兜住滚过去的内容。 */
