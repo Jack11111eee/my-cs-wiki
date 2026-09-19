@@ -1,34 +1,102 @@
-/* ===== 配色与字体：按 design-refs/jacky-zhao/SPEC.md 第 6 节映射 ===== */
+/* ============================================================================
+   樱花 / 雪夜主题
+   来源：design-refs/sakura-snow/index.html（已定稿的独立设计稿）
+   白天 = 樱花（浅色，无 .dark）；夜晚 = 雪夜（.dark，VitePress 自带切换按钮控制）
+   ============================================================================ */
+
+/* ===== 全屏远景 + 磨砂玻璃 =====
+   底图必须是真实 DOM 元素，不能改成 body 的 background-image：
+   body 的背景会传播到 canvas，那样 backdrop-filter 采不到它，模糊会失效。
+   层叠预算见下方 .VPContent。 */
+.wiki-bg,
+.wiki-glass {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wiki-bg {
+  z-index: 1;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  transition: opacity 0.6s ease;
+}
+
+.wiki-bg--day { opacity: 1; }
+.wiki-bg--night { opacity: 0; }
+
+.dark .wiki-bg--day { opacity: 0; }
+.dark .wiki-bg--night { opacity: 1; }
+
+.wiki-glass {
+  z-index: 3;
+  background-color: var(--wiki-glass);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  transition: background-color 0.6s ease;
+}
+
+/* 内容抬到玻璃之上。
+   不变量：玻璃 3 < 内容 4。
+   右侧目录 .aside-container 是 fixed 且在 .VPContent 内部，若内容层低于玻璃，
+   整个目录会被 stacking context 一起压下去糊掉。
+   其余 VitePress 自带的 z-index（footer 10 / local-nav 20 / sidebar 25·60 /
+   nav 30 / backdrop 50）一律不动。 */
+.VPContent {
+  position: relative;
+  z-index: 4;
+}
+
+/* ============================================================================
+   白天 · 樱花
+   底图是高调粉白，整体走「暖白 + 樱粉」，文字用深梅子色而不是黑。
+   ============================================================================ */
 :root {
-  /* 布局（实测：原站网格总宽 / 左栏宽） */
-  --vp-layout-max-width: 1400px;
-  --vp-sidebar-width: 320px;
+  /* 语义令牌 */
+  --wiki-glass: rgba(255, 250, 251, 0.68);
+  --wiki-bar: rgba(255, 250, 251, 0.72);
+  --wiki-bar-solid: rgba(255, 250, 251, 0.96);
+  --wiki-panel: rgba(255, 255, 255, 0.6);
+  --wiki-panel-2: rgba(253, 238, 243, 0.72);
+  --wiki-panel-hover: rgba(255, 255, 255, 0.88);
+  --wiki-link: #a83254;
+  --wiki-accent: #cf5079;
 
-  /* 背景 */
-  --vp-c-bg: #f5eedd; /* 实测：原站 --light，纸色 */
-  --vp-c-bg-alt: #efe6d0; /* 推导：侧栏 / 导航栏 */
-  --vp-c-bg-soft: #ece2c9; /* 推导：卡片 */
-  --vp-c-bg-elv: #faf5e8; /* 推导：浮层 */
+  /* 布局：正文栏 = layout-max-width − sidebar-width − 64 − 256 − 64
+     = 1320 − 236 − 384 = 700px，正好等于 .content-container 的上限。 */
+  --vp-layout-max-width: 1320px;
+  --vp-sidebar-width: 236px;
 
-  /* 文字 */
-  --vp-c-text-1: #16294e; /* 实测：原站 --dark，标题与正文主色 */
-  --vp-c-text-2: #2d4673; /* 实测：原站 --darkgray */
-  --vp-c-text-3: #9a8e76; /* 实测：原站 --gray，次要信息 */
+  /* 页面底色：body 背景会传播到 canvas，必须是实色——
+     设成透明会让 macOS/iOS 回弹露白、JS 未加载时白屏。 */
+  --vp-c-bg: #f7eff2;
+  --vp-c-bg-alt: var(--wiki-panel);
+  --vp-c-bg-soft: var(--wiki-panel);
+  --vp-c-bg-elv: var(--wiki-bar-solid);
 
-  /* 边框 */
-  --vp-c-divider: #e3d9c0; /* 实测：原站 --lightgray */
-  --vp-c-border: #e3d9c0; /* 实测 */
-  --vp-c-gutter: #e3d9c0; /* 实测 */
+  --vp-c-text-1: #46283a;
+  --vp-c-text-2: #5d3c4b;
+  --vp-c-text-3: #a3818d;
 
-  /* 品牌色：橙红，不用默认靛蓝 */
-  --vp-c-brand-1: #c8482b; /* 实测：原站 --tertiary */
-  --vp-c-brand-2: #b03e24; /* 推导：hover 加深 */
-  --vp-c-brand-3: #d4553a; /* 推导：浅一档 */
-  --vp-c-brand-soft: rgba(200, 72, 43, 0.14);
+  --vp-c-divider: rgba(206, 158, 174, 0.46);
+  --vp-c-border: rgba(196, 138, 158, 0.66);
+  --vp-c-gutter: rgba(206, 158, 174, 0.46);
 
-  /* 代码 */
-  --vp-code-block-bg: #ece2c9; /* 推导 */
-  --vp-code-bg: #e3d9c0; /* 实测：原站行内代码底色 */
+  /* 强调色分两个用途：#cf5079 只做装饰（下划线、目录游标）；
+     按钮是白字压强调色，#cf5079 只有约 3.1:1，所以品牌色用深一档的 #b23a60。 */
+  --vp-c-brand-1: #b23a60;
+  --vp-c-brand-2: #cf5079;
+  --vp-c-brand-3: #a83254;
+  --vp-c-brand-soft: rgba(207, 80, 121, 0.13);
+
+  --vp-code-block-bg: var(--wiki-panel);
+  --vp-code-bg: rgba(253, 232, 239, 0.86);
+  --vp-code-color: #a83254;
+
+  /* 主题切换开关：默认是写死的灰轨道，和新配色打架 */
+  --vp-input-switch-bg-color: rgba(207, 80, 121, 0.18);
+  --vp-input-border-color: var(--vp-c-border);
 
   /* 字体：西文在前，中文黑体在后 */
   --vp-font-family-base: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont,
@@ -39,39 +107,98 @@
   --wiki-font-serif: 'DM Serif Display', 'Iowan Old Style', 'Songti SC',
     'Source Han Serif SC', 'Noto Serif SC', Georgia, serif;
 
-  /* 正文链接色（原站 --secondary，不在第 6 节变量表里，单独定义） */
-  --wiki-c-link: #284d78;
-
-  /* 首页 hero：纸色底上不要靛蓝渐变 */
+  /* 首页 hero 标题渐变 */
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #c8482b 10%, #284d78 90%);
+  --vp-home-hero-name-background: linear-gradient(118deg, var(--wiki-accent) 8%, var(--wiki-link) 92%);
 }
 
+/* ============================================================================
+   夜晚 · 雪夜
+   底图是低调整体深蓝 + 篝火暖橙，强调色直接取篝火色，
+   链接走冰蓝，和画面里雪地的反光同一个色相。
+   ============================================================================ */
 .dark {
-  --vp-c-bg: #06182f; /* 实测：深藏青，不是黑 */
-  --vp-c-bg-alt: #0a1f3a; /* 推导 */
-  --vp-c-bg-soft: #122845; /* 实测：原站暗色 --lightgray */
-  --vp-c-bg-elv: #0d2440; /* 推导 */
+  --wiki-glass: rgba(11, 21, 47, 0.6);
+  --wiki-bar: rgba(9, 18, 42, 0.66);
+  --wiki-bar-solid: rgba(9, 18, 42, 0.96);
+  --wiki-panel: rgba(24, 40, 78, 0.55);
+  --wiki-panel-2: rgba(30, 49, 92, 0.62);
+  --wiki-panel-hover: rgba(36, 58, 106, 0.78);
+  --wiki-link: #8fb8ee;
+  --wiki-accent: #ff9147;
 
-  --vp-c-text-1: #eef4fc; /* 实测 */
-  --vp-c-text-2: #caddf4; /* 实测 */
-  --vp-c-text-3: #7191b8; /* 实测 */
+  --vp-c-bg: #060d20;
+  --vp-c-bg-alt: var(--wiki-panel);
+  --vp-c-bg-soft: var(--wiki-panel);
+  --vp-c-bg-elv: var(--wiki-bar-solid);
 
-  --vp-c-divider: #122845; /* 实测 */
-  --vp-c-border: #122845; /* 实测 */
-  --vp-c-gutter: #122845; /* 实测 */
+  --vp-c-text-1: #ecf2ff;
+  --vp-c-text-2: #c2d2ee;
+  --vp-c-text-3: #7e94ba;
 
-  --vp-c-brand-1: #e0552f; /* 实测：暗色下提亮 */
-  --vp-c-brand-2: #e86b48; /* 推导：暗色下 hover 提亮 */
-  --vp-c-brand-3: #c8482b; /* 推导 */
-  --vp-c-brand-soft: rgba(224, 85, 47, 0.14);
+  --vp-c-divider: rgba(122, 154, 208, 0.22);
+  --vp-c-border: rgba(142, 174, 226, 0.38);
+  --vp-c-gutter: rgba(122, 154, 208, 0.22);
 
-  --vp-code-block-bg: #122845;
-  --vp-code-bg: #122845;
+  --vp-c-brand-1: #ffab6e;
+  --vp-c-brand-2: #ff9147;
+  --vp-c-brand-3: #ffc79a;
+  --vp-c-brand-soft: rgba(255, 145, 71, 0.15);
 
-  --wiki-c-link: #8fb9de; /* 实测：原站暗色 --secondary */
+  --vp-code-block-bg: var(--wiki-panel);
+  --vp-code-bg: rgba(30, 49, 92, 0.78);
+  --vp-code-color: #ffc79a;
 
-  --vp-home-hero-name-background: linear-gradient(120deg, #e0552f 10%, #8fb9de 90%);
+  --vp-input-switch-bg-color: rgba(255, 145, 71, 0.2);
+
+  --vp-home-hero-name-background: linear-gradient(118deg, var(--wiki-accent) 8%, var(--wiki-link) 92%);
+}
+
+/* ============================================================================
+   背景处理：把 VitePress 自己画的底色换成玻璃色
+   ============================================================================ */
+
+/* 顶栏。
+   .VPNavBar:not(.home) 和 .VPNavBar.has-sidebar .title 是 scoped 选择器（权重 0,3,0），
+   普通规则压不过，必须 !important。
+   保留 :not(.home.top)：VitePress 故意让首页顶部的顶栏透明，否则 hero 会被切一条。 */
+@media (min-width: 960px) {
+  .VPNavBar:not(.home.top) {
+    background-color: var(--wiki-bar) !important;
+  }
+}
+
+/* 桌面端侧栏透明，改用右边框分隔（设计稿就是窄栏 + 一条细线）。
+   窄屏时它是抽屉，需要可读底色，所以只在 ≥960px 透明。 */
+@media (min-width: 960px) {
+  .VPSidebar {
+    background-color: transparent !important;
+    border-right: 1px solid var(--vp-c-divider);
+  }
+}
+
+/* 侧栏顶部那块 sticky 遮罩要保持不透明——它的作用是遮住滚上去的侧栏项，
+   改透明会让条目从遮罩带里透出来。 */
+.VPSidebar .curtain {
+  background-color: var(--wiki-bar) !important;
+}
+
+/* 右侧目录底部的渐隐遮罩同理，用模糊兜住滚过去的内容。 */
+.VPDoc .aside-curtain {
+  background: linear-gradient(transparent, var(--wiki-bar) 70%) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* 窄屏的抽屉菜单和下拉菜单：没有 backdrop-filter，需要接近不透明才读得清。 */
+.VPNavScreen {
+  background-color: var(--wiki-bar-solid) !important;
+}
+
+/* 表格行默认用 --vp-c-bg（实色），换成半透明，否则斑马纹变成实心色带。
+   这张表是全局非 scoped 样式，等权重覆盖即可。 */
+.vp-doc tr {
+  background-color: var(--wiki-panel);
 }
 
 /* ===== 标题换衬线 ===== */
@@ -84,8 +211,8 @@
 .VPHero .name,
 .VPHero .text {
   font-family: var(--wiki-font-serif);
-  /* SPEC 第 6 节写的是 700，这里故意用 400：DM Serif Display 只有 400 一个字重，
-     写 700 会触发浏览器合成加粗，把衬线笔画糊掉。已确认保持 400。 */
+  /* DM Serif Display 只有 400 一个字重，写 700 会触发浏览器合成加粗，
+     把衬线笔画糊掉。已确认保持 400。 */
   font-weight: 400;
   color: var(--vp-c-text-1);
 }
@@ -100,12 +227,12 @@
   line-height: 32px;
 }
 
-/* ===== 橙红下划线链接：全站最强的识别特征 ===== */
+/* ===== 彩色下划线链接：全站最强的识别特征，只换色 ===== */
 .vp-doc a {
-  color: var(--wiki-c-link);
+  color: var(--wiki-link);
   font-weight: 600;
   text-decoration: underline;
-  text-decoration-color: var(--vp-c-brand-1);
+  text-decoration-color: var(--wiki-accent);
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
@@ -120,20 +247,21 @@
   margin-top: 8px;
 }
 
-/* 正文宽 700px（第 8 节：750px 对中文偏宽）。VitePress 默认 688px 带 scoped 属性，
-   选择器权重不够，只能 !important 压过去。 */
+/* 正文宽 700px。VitePress 默认 688px 带 scoped 属性，选择器权重不够，只能 !important。 */
 .VPDoc .content-container {
   max-width: 700px !important;
 }
 
-/* ===== 首页卡片：默认是块死板的色块，加圆角和悬浮 ===== */
+/* ===== 首页卡片 =====
+   VPFeature.vue 的 scoped 样式用 --vp-c-bg-soft 同时做背景和边框（权重 0,2,0），
+   压过普通的 .VPFeature（0,1,0）——所以边框和 hover 都要 !important 才生效。 */
 .VPFeature {
   border-radius: 14px;
-  border: 1px solid transparent;
+  border: 1px solid var(--vp-c-divider) !important;
   transition:
     transform 0.25s,
     border-color 0.25s,
-    box-shadow 0.25s;
+    box-shadow 0.25s !important;
 }
 
 .VPFeature .details {
@@ -142,10 +270,6 @@
 
 .VPFeature:hover {
   transform: translateY(-4px);
-  border-color: var(--vp-c-brand-2);
-  box-shadow: 0 10px 30px rgba(200, 72, 43, 0.12);
-}
-
-.dark .VPFeature:hover {
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  border-color: var(--wiki-accent) !important;
+  box-shadow: 0 12px 30px var(--vp-c-brand-soft);
 }
