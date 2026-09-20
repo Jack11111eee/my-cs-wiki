@@ -1,54 +1,50 @@
 <script setup>
-/* 顶栏下方的「花瓣消散」。
+/* 顶栏下方的「沙粒消散」。
    ---------------------------------------------------------------------------
    要解决的问题：顶栏是透明的，正文滚到它下面就会和导航链接糊在一起。
    以前靠顶栏自己的 backdrop-filter 把正文糊掉。现在改成：正文在顶栏这一带
-   一点点散成花瓣，越往上散得越彻底，到屏幕最顶上完全散尽。
+   一点点碎成沙粒，越往上散得越彻底，到屏幕最顶上完全散尽。
 
    消散线 = 顶栏底边。消弥梯度从这条线**往上**铺，正好铺满顶栏那 64px：
-     刚碰到线的字     —— 还很清楚，只掉几片花瓣
+     刚碰到线的字     —— 还很清楚，只掉几粒沙
      线往上走一半     —— 半消弥，字还在但明显在散
-     屏幕最顶         —— 字没了，只剩花瓣云，再淡出
+     屏幕最顶         —— 字没了，只剩沙云，再淡出
    所以静止时顶栏下方不会平白少一行，文字贴着顶栏底边也是完整的。
 
-   花瓣是**挂在行盒上**的，不是钉在屏幕上：每片花瓣记的是「在本行里的相对位置」，
-   每帧按行盒当前的位置算屏幕坐标。于是花瓣天然跟着文字一起往上走，
-   就像文字本身变成了花瓣；往回滚时行的消散度降下来，花瓣就淡回去、文字重新凝聚。
+   沙粒是**挂在行盒上**的，不是钉在屏幕上：每粒沙记的是「在本行里的相对位置」，
+   每帧按行盒当前的位置算屏幕坐标。于是沙粒天然跟着文字一起往上走，
+   就像文字本身变成了沙；往回滚时行的消散度降下来，沙粒就落回去、文字重新凝聚。
+
+   沙粒的随机与运动（散开方向、时序偏移、漂浮、落地抖动、尺寸与透明度）
+   和首页开场那套是同一份代码，见 grains.js。这里只负责时间轴——
+   首页是一次性动画，这里是滚动驱动：t = 1 − 这一格的消散度。
 
    为什么用 mask 而不是把每个字包成 <span>：
    逐字包 span 能拿到最精确的碎裂效果，但会牵动拉丁文断行、::marker 列表序号、
    <a> 下划线、行内 code 底色、代码块底色，每个都得单独打补丁，而且动过 DOM
    之后将来开本地搜索会打坏它的高亮。mask 一次性把所有东西统一吃掉，且不动 DOM。
-   花瓣位置改用 Range.getClientRects() 拿真实字符行盒，所以照样是从字上飞出来的。
+   沙粒位置改用 Range.getClientRects() 拿真实字符行盒，所以照样是从字上飞出来的。
 
    可访问性：prefers-reduced-motion 下整个不启动，由 custom.css 把顶栏的 blur 放回来。
    窄屏（<960px）不启用——顶栏在窄屏是不透明的，正文不会从它下面过。 */
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useRoute } from 'vitepress'
+import { GRAIN_DEFAULTS, grainD, hash2, makeGrain, grainState } from './grains.js'
 
 const canvasEl = ref(null)
 const route = useRoute()
 
 const CFG = {
+  ...GRAIN_DEFAULTS, // 沙粒的随机与运动参数，和首页开场共用（见 grains.js）
   curve: 1.5, // 消散曲线指数。越大，越靠近消弥线的字越"扛得住"，越往顶散得越快
-  density: 0.05, // 行宽每 1px 的横向格数（700px 的一行约 35 格）
   maxCols: 90, // 单行横向格数上限，防止超长行炸掉
   cellH: 11, // 纵向格子的基准高度，行高按它切行数
   maxRows: 3, // 单行纵向格数上限
-  stagger: 0.7, // 每格的时序偏移强度。0 一起碎，1 最参差
   maskStep: 3, // mask 台阶高度（px）。段内 alpha 恒定，段间硬跳
-  fadeIn: 0.16, // 花瓣淡入速度（每帧向目标靠拢的比例）
-  fadeOut: 0.1, // 淡出速度
-  swayAmp: 2.5, // 左右轻微飘动幅度（px）
-  spin: 0.35, // 自转角速度（rad/s）
-}
-
-// 和 canvasui 的 GLSL hash 同款：fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)。
-// 用它而不是 Math.random()，是为了让每格的时序偏移只由格子的位置决定——
-// 同一格每帧算出来都一样，相邻两格不会同步。
-function hash2(x, y) {
-  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453
-  return s - Math.floor(s)
+  // 这一带只有 64px 高，飞散范围收窄到首页的三分之一——
+  // 按首页那 150px 散，沙会盖到下面完整可读的正文上。
+  spread: 50,
+  swirl: 25,
 }
 
 // 消散度：t = 0 刚好碰到消弥线，t = 1 屏幕最顶
@@ -66,18 +62,18 @@ function createEngine(canvas) {
   let dpr = 1
   let W = 0
   let H = 0
-  let stripH = 0 // 画布高度：花瓣只可能出现在顶部这一条，见 measure()
+  let stripH = 0 // 画布高度：沙粒只可能出现在顶部这一条，见 measure()
   let target = null // { el, docTop }  正文容器，只会有一个
-  let lines = [] // [{ x0,x1,top,bot, petals:[], live }]  行盒，文档坐标
+  let lines = [] // [{ x0,x1,top,bot, cols,rows,ds,color, grains:Map }]  行盒，文档坐标
   let chromeBottom = 64
-  let sprites = []
-  let sizeScale = 1
   let raf = 0
   let running = false // 主循环在跑
   let active = false // 效果处于启用状态（可能正闲着没在跑循环）
   let lastMaskKey = ''
   let remeasureTimer = 0
   let ro = null
+  let roW = 0 // 上一次 ResizeObserver 报的尺寸，见 measure() 里的说明
+  let roH = 0
   let themeObs = null
 
   /* ---------- 测量 ---------- */
@@ -95,10 +91,11 @@ function createEngine(canvas) {
   }
 
   // 行盒只在这里读一次，之后每帧纯算术。
-  // 同时把每条行盒切成 cols × rows 的格点——花瓣不再是随机撒在行里，
-  // 而是一格一片，于是消散看起来是"按格点碎开"而不是"糊成一片"。
-  // 每格的时序偏移 d 也在这里用 hash 算好（Float32Array），
-  // 每帧再算的话 60fps × 上千格是白烧 CPU。
+  // 同时把每条行盒切成 cols × rows 的格点——沙粒不再是随机撒在行里，
+  // 而是一格一粒，于是消散看起来是"按格点碎开"而不是"糊成一片"。
+  // 每格的时序偏移 d 也在这里算好（Float32Array），每帧再算的话是白烧 CPU。
+  // 每行还要记下这行文字的计算色，沙粒就用它——正文基本单色，
+  // 这样沙云的颜色天然跟主题走（白天深梅子、夜晚近白）。
   function collectLines(root, sy) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(n) {
@@ -114,13 +111,14 @@ function createEngine(canvas) {
     const range = document.createRange()
     let li = 0
     while (walker.nextNode()) {
+      const color = getComputedStyle(walker.currentNode.parentElement).color
       range.selectNodeContents(walker.currentNode)
       const rects = range.getClientRects()
       for (const r of rects) {
         if (r.width < 1 || r.height < 1) continue
         const cols = Math.max(
           1,
-          Math.min(CFG.maxCols, Math.round(r.width * CFG.density)),
+          Math.min(CFG.maxCols, Math.round(r.width / CFG.density)),
         )
         const rows = Math.max(
           1,
@@ -131,7 +129,7 @@ function createEngine(canvas) {
         for (let k = 0; k < n; k++) {
           const col = k % cols
           const row = (k - col) / cols
-          ds[k] = hash2(col + li * 0.37, row + li * 0.11) * CFG.stagger
+          ds[k] = grainD(col, row, li, CFG)
         }
         lines.push({
           x0: r.left,
@@ -141,9 +139,11 @@ function createEngine(canvas) {
           cols,
           rows,
           ds,
-          // 格子索引 → 花瓣。用 Map 而不是数组：格子的激活顺序由 hash 决定，
+          color,
+          seed: li, // 给 grains.js 的 hash 用，让相邻两行的沙不长得一模一样
+          // 格子索引 → 沙粒。用 Map 而不是数组：格子的激活顺序由 hash 决定，
           // 不是按下标顺序来的，数组会留一堆洞。
-          petals: new Map(),
+          grains: new Map(),
         })
         li++
       }
@@ -162,114 +162,49 @@ function createEngine(canvas) {
     lastMaskKey = ''
     if (ro) ro.disconnect()
     if (target) {
-      ro = new ResizeObserver(scheduleRemeasure)
+      // 首次 observe() 一定会立刻回调一次，那次只用来记基准尺寸、不触发重测——
+      // 否则就是：measure() → observe() → 回调 → scheduleRemeasure() → 150ms 后
+      // measure() → observe() …… 每 150ms 空转一轮。这一轮会把 lines 整个丢掉重建，
+      // 正在飞的沙粒跟着被清空，滚动时消散会一顿一顿的。
+      let primed = false
+      ro = new ResizeObserver((entries) => {
+        const r = entries[0].contentRect
+        const w = Math.round(r.width)
+        const h = Math.round(r.height)
+        if (!primed) {
+          primed = true
+          roW = w
+          roH = h
+          return
+        }
+        if (w === roW && h === roH) return
+        roW = w
+        roH = h
+        scheduleRemeasure()
+      })
       ro.observe(target.el)
     }
 
     // 画布只需要盖住顶部一条。
-    // 一行只有 D > 0 时才有花瓣，也就是它的顶边必须已经越过消弥线；
-    // 花瓣的 y 又在 [行顶, 行底] 之间，所以花瓣不可能跑到
-    // chromeBottom + 最高的行高 以下。整屏画布白算 6 倍面积，还会让
-    // 合成器每帧重传一整屏纹理（实测能掉到 40fps 并偶发 100ms 长帧）。
+    // 一行只有 D > 0 时才有沙粒，也就是它的顶边必须已经越过消弥线；
+    // 沙粒从行盒里飞出来，最远能飞到 spread 那么远，再加上 gravity 的向下偏置
+    // 和 swirl 的侧向弧线，所以画布要盖到消弥线以下这么多。往上飞的会飞出
+    // 屏幕顶（画布顶边就是视口顶边），自然被裁掉。
+    // 整屏画布白算 6 倍面积，还会让合成器每帧重传一整屏纹理
+    // （实测能掉到 40fps 并偶发 100ms 长帧）。
     let maxLineH = 0
     for (const ln of lines) maxLineH = Math.max(maxLineH, ln.bot - ln.top)
-    stripH = Math.min(window.innerHeight, Math.ceil(chromeBottom + maxLineH + 12))
+    const scatter = CFG.spread * (1 + Math.max(0, CFG.gravity)) + CFG.swirl + 12
+    stripH = Math.min(
+      window.innerHeight,
+      Math.ceil(chromeBottom + maxLineH + scatter),
+    )
     resizeCanvas()
   }
 
   function scheduleRemeasure() {
     clearTimeout(remeasureTimer)
     remeasureTimer = setTimeout(measure, 150)
-  }
-
-  /* ---------- 花瓣贴图 ---------- */
-
-  // 单瓣樱花：底部收窄、尖端有个 V 形缺口
-  function petalSprite(size, c0, c1, c2) {
-    const c = document.createElement('canvas')
-    c.width = c.height = size
-    const g = c.getContext('2d')
-    const w = size * 0.62
-    const h = size * 0.92
-    g.translate(size / 2, size / 2)
-    g.beginPath()
-    g.moveTo(0, h * 0.5)
-    g.bezierCurveTo(w * 0.62, h * 0.3, w * 0.56, -h * 0.3, w * 0.15, -h * 0.5)
-    g.lineTo(0, -h * 0.32) // 缺口
-    g.lineTo(-w * 0.15, -h * 0.5)
-    g.bezierCurveTo(-w * 0.56, -h * 0.3, -w * 0.62, h * 0.3, 0, h * 0.5)
-    g.closePath()
-    const grad = g.createLinearGradient(0, h * 0.5, 0, -h * 0.5)
-    grad.addColorStop(0, c0)
-    grad.addColorStop(0.55, c1)
-    grad.addColorStop(1, c2)
-    g.fillStyle = grad
-    g.fill()
-    return c
-  }
-
-  // 六角冰晶
-  function snowSprite(size, c0, c1) {
-    const c = document.createElement('canvas')
-    c.width = c.height = size
-    const g = c.getContext('2d')
-    const r = size * 0.42
-    g.translate(size / 2, size / 2)
-    g.strokeStyle = c0
-    g.lineWidth = Math.max(1, size * 0.075)
-    g.lineCap = 'round'
-    for (let i = 0; i < 6; i++) {
-      g.save()
-      g.rotate((i * Math.PI) / 3)
-      g.beginPath()
-      g.moveTo(0, 0)
-      g.lineTo(0, -r)
-      for (const t of [0.5, 0.78]) {
-        const y = -r * t
-        const len = r * (1 - t) * 0.75
-        g.moveTo(0, y)
-        g.lineTo(len * 0.8, y - len * 0.5)
-        g.moveTo(0, y)
-        g.lineTo(-len * 0.8, y - len * 0.5)
-      }
-      g.stroke()
-      g.restore()
-    }
-    const core = g.createRadialGradient(0, 0, 0, 0, 0, r * 0.5)
-    core.addColorStop(0, c1)
-    core.addColorStop(1, 'rgba(255,255,255,0)')
-    g.fillStyle = core
-    g.beginPath()
-    g.arc(0, 0, r * 0.5, 0, Math.PI * 2)
-    g.fill()
-    return c
-  }
-
-  function buildSprites() {
-    const css = getComputedStyle(document.documentElement)
-    const v = (n) => css.getPropertyValue(n).trim()
-    const dark = document.documentElement.classList.contains('dark')
-    const S = 34
-    if (dark) {
-      const a = v('--wiki-petal-a') || '#9fc2f0'
-      const b = v('--wiki-petal-b') || '#cfe0ff'
-      const c = v('--wiki-petal-c') || '#ffffff'
-      sprites = [snowSprite(S, b, c), snowSprite(S, a, c), snowSprite(S, c, c)]
-      // 冰晶的六条臂铺满整张贴图，花瓣只占贴图中间一条，
-      // 同样尺寸下冰晶看着要大一圈，所以夜里整体缩一档
-      sizeScale = 0.8
-    } else {
-      const a = v('--wiki-petal-a') || '#ef9dbb'
-      const b = v('--wiki-petal-b') || '#f8c9dc'
-      const c = v('--wiki-petal-c') || '#fff2f7'
-      sprites = [
-        petalSprite(S, a, b, c),
-        petalSprite(S, b, c, c),
-        petalSprite(S, c, b, c),
-        petalSprite(S, a, c, b),
-      ]
-      sizeScale = 1
-    }
   }
 
   /* ---------- 画布 ---------- */
@@ -327,12 +262,12 @@ function createEngine(canvas) {
     target.el.style.webkitMaskImage = v
   }
 
-  /* ---------- 花瓣 ---------- */
+  /* ---------- 沙粒 ---------- */
 
-  // 花瓣记的是「在本行里的相对位置」，不是屏幕坐标——
-  // 这样行盒往上走时花瓣自动跟着走。
-  // fx/fy 由格子下标算出来（格中心 + hash 抖动），不再是纯随机，
-  // 所以花瓣是钉在格点上的。
+  // 沙粒记的是「在本行里的相对位置」，不是屏幕坐标——
+  // 这样行盒往上走时沙粒自动跟着走。
+  // fx/fy 由格子下标算出来（格中心 + hash 抖动），不是纯随机，所以是钉在格点上的。
+  // 散开方向、时序偏移那些随机量来自 grains.js，和首页开场共用同一套。
   function makePetal(ln, k) {
     const col = k % ln.cols
     const row = (k - col) / ln.cols
@@ -341,44 +276,38 @@ function createEngine(canvas) {
     return {
       fx: (col + 0.15 + jx * 0.7) / ln.cols,
       fy: (row + 0.15 + jy * 0.7) / ln.rows,
-      sp: sprites.length ? (Math.random() * sprites.length) | 0 : 0, // 贴图编号
-      s: (4.5 + Math.random() * 5.5) * sizeScale,
-      rot: Math.random() * Math.PI * 2,
-      dir: Math.random() < 0.5 ? -1 : 1,
-      sw: 0.5 + Math.random() * 1.1, // 左右摆动频率
-      swp: Math.random() * Math.PI * 2,
-      flip: 0.6 + Math.random() * 1.6, // 翻转频率
-      fp: Math.random() * Math.PI * 2,
-      base: 0.6 + Math.random() * 0.4, // 每片透明度略有差异
-      a: 0,
+      ...makeGrain(col, row, ln.seed, CFG),
     }
   }
 
-  // 逐格算消散进度。D 是行级消散度（0 贴着消弥线，1 屏幕最顶），
+  // 逐格算凝聚进度。D 是行级消散度（0 贴着消弥线，1 屏幕最顶），
   // 每格再按自己的时序偏移 d 错开：
   //   tc = (D - d) / (1 - d)  —— 这一格的消散进度
   // d 越大越晚碎，所以靠近消弥线的格子先碎，越往顶越晚，参差感就是这么来的。
-  // 花瓣的透明度直接跟 tc 走（缓出），不再是非 0 即 1 的开关，
-  // 于是每一格是"渐显"而不是"啪地出现"。
+  // 沙粒用的是「凝聚进度」t = 1 − tc（grains.js 里 t=1 表示落在原位），
+  // 于是字还完整时 t=1、沙粒根本不画；字碎干净时 t=0、沙粒全散开。
   function updateLines(sy) {
     const ramp = chromeBottom
     for (const ln of lines) {
-      const D = dissolveAt((chromeBottom - (ln.top - sy)) / ramp)
-      // 整行还在消弥线以下、且已经没有残留花瓣：这一行没活干
-      if (D <= 0 && ln.petals.size === 0) continue
+      const lineY = ln.top - sy
+      // 画布外整行的沙粒都不可能出现，跳过。已经滚到上面的行 D 恒为 1、
+      // 沙粒停在 t=0，不更新也不会变；不跳的话每帧要空转几百行 × 上百格。
+      if (lineY > stripH + 60 || ln.bot - sy < -60) continue
+      const D = dissolveAt((chromeBottom - lineY) / ramp)
+      if (D <= 0 && ln.grains.size === 0) continue
       const n = ln.cols * ln.rows
       for (let k = 0; k < n; k++) {
         const d = ln.ds[k]
         const tc = d >= 1 ? 1 : (D - d) / (1 - d)
-        const goal = tc > 0 ? 1 - Math.pow(1 - Math.min(tc, 1), 3) : 0
-        let p = ln.petals.get(k)
-        if (goal > 0 && !p) {
-          p = makePetal(ln, k)
-          ln.petals.set(k, p)
+        let g = ln.grains.get(k)
+        if (tc > 0 && !g) {
+          g = makePetal(ln, k)
+          ln.grains.set(k, g)
         }
-        if (!p) continue
-        p.a += (goal - p.a) * (goal > p.a ? CFG.fadeIn : CFG.fadeOut)
-        if (p.a < 0.005 && goal === 0) ln.petals.delete(k)
+        if (!g) continue
+        // t 存下来给 draw 用；散开时 t=0，字完整时 t=1（那时 alpha 已经淡到 0）
+        g.t = 1 - (tc < 0 ? 0 : tc > 1 ? 1 : tc)
+        if (g.t >= 0.9995) ln.grains.delete(k)
       }
     }
   }
@@ -386,24 +315,22 @@ function createEngine(canvas) {
   function draw(sy) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
-    const t = performance.now() / 1000
+    const now = performance.now() / 1000
     for (const ln of lines) {
-      if (ln.petals.size === 0) continue
+      if (ln.grains.size === 0) continue
       const lineY = ln.top - sy
-      const h = ln.bot - ln.top
-      if (lineY > stripH + 40 || lineY + h < -40) continue // 整行在画布外
+      if (lineY > stripH + 60 || ln.bot - sy < -60) continue // 整行在画布外
       const w = ln.x1 - ln.x0
-      for (const p of ln.petals.values()) {
-        if (p.a < 0.01) continue
-        const x = ln.x0 + p.fx * w + Math.sin(t * p.sw + p.swp) * CFG.swayAmp
-        const y = lineY + p.fy * h
-        ctx.globalAlpha = p.a * p.base
-        ctx.translate(x, y)
-        ctx.rotate(p.rot + t * CFG.spin * p.dir)
-        // 用纵向压缩模拟花瓣轻微翻转
-        ctx.scale(1, Math.cos(t * p.flip + p.fp) * 0.6 + 0.4)
-        ctx.drawImage(sprites[p.sp], -p.s, -p.s, p.s * 2, p.s * 2)
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const h = ln.bot - ln.top
+      ctx.fillStyle = ln.color
+      for (const g of ln.grains.values()) {
+        const st = grainState(g, g.t, now, CFG)
+        if (st.alpha <= 0.01) continue
+        const x = ln.x0 + g.fx * w + st.dx
+        const y = lineY + g.fy * h + st.dy
+        if (x < -40 || x > W + 40 || y < -40 || y > stripH + 40) continue
+        ctx.globalAlpha = st.alpha
+        ctx.fillRect(x - st.size / 2, y - st.size / 2, st.size, st.size)
       }
     }
     ctx.globalAlpha = 1
@@ -411,14 +338,14 @@ function createEngine(canvas) {
 
   /* ---------- 主循环 ---------- */
 
-  // 有没有活干：视口附近还有花瓣在淡出，或者有行正处在消散区间里。
-  // 只算视口附近的行——已经滚到上面去的行，D 恒为 1、花瓣一直留着（这样往回滚
+  // 有没有活干：视口附近还有沙粒在飞，或者有行正处在消散区间里。
+  // 只算视口附近的行——已经滚到上面去的行，D 恒为 1、沙粒一直留着（这样往回滚
   // 时能直接凝聚回来），但它们不在画面上，不该让主循环一直空转。
   function busy(sy) {
     for (const ln of lines) {
       const y = ln.top - sy
       if (y > H + 80 || ln.bot - sy < -80) continue
-      if (ln.petals.size) return true
+      if (ln.grains.size) return true
       if (y < chromeBottom) return true
     }
     return false
@@ -459,7 +386,6 @@ function createEngine(canvas) {
   function enable() {
     active = true
     measure() // 里面会算 stripH 并 resizeCanvas
-    buildSprites()
     start()
   }
 
@@ -501,9 +427,9 @@ function createEngine(canvas) {
   document.fonts?.ready.then(() => {
     if (enabled()) measure()
   })
-  // 深浅色切换要重建贴图
+  // 深浅色切换要重新测量：沙粒的颜色取自每行文字的计算色，换主题就变了
   themeObs = new MutationObserver(() => {
-    if (enabled()) buildSprites()
+    if (enabled()) measure()
   })
   themeObs.observe(document.documentElement, {
     attributes: true,

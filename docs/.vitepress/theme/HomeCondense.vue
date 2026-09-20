@@ -25,39 +25,16 @@
    可访问性：prefers-reduced-motion 下整个不启动，内容直接完整显示。 */
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useRoute } from 'vitepress'
+import { GRAIN_DEFAULTS, makeGrain, grainState } from './grains.js'
 
 const canvasEl = ref(null)
 const route = useRoute()
 
 const CFG = {
-  density: 6, // 格点边长（px）。越小沙越细，但沙粒总数会平方级涨
-  size: 1.4, // 完全散开时沙粒的边长（px）
-  spread: 150, // 最大飞散距离（px）
-  gravity: 0.35, // 向下偏置，像沙往下沉。负值会往上飘
-  drift: 0.7, // 漂浮速度。0 冻住
-  swirl: 45, // 侧向弧线幅度（px）
-  stagger: 0.7, // 每粒沙时序的参差程度。0 一起落，1 最参差
-  fade: 0.85, // 完全散开时的不透明度
+  ...GRAIN_DEFAULTS, // 沙粒的随机与运动参数，和文档页共用（见 grains.js）
   settle: 0.55, // 单粒沙从散开到落位耗时（秒）
   speed: 520, // 凝聚波往下推进的速度（px/s）
-  grow: 0.45, // 落地时沙粒边长相对格点边长的比例。
-  // 这里故意比 canvasui 小：原版让沙粒长到 1.3 倍格点、盖满自己的格子，
-  // 因为它采样了真实内容像素，沙粒拼起来就是无缝的文字。
-  // 我们拿不到像素，涨到盖满只会把行盒变成一个实心色块，所以只长大一点点。
   maxGrains: 14000, // 沙粒总数上限，兜底防止超长页面炸掉
-}
-
-// 和 canvasui 的 GLSL hash 同款：fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)。
-// 用它而不是 Math.random()，是为了让每粒沙的散开方向只由它的格点决定——
-// 同一粒每帧算出来都一样，否则沙会在原地乱抖。
-function hash2(x, y) {
-  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453
-  return s - Math.floor(s)
-}
-
-function smoothstep(a, b, x) {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
-  return t * t * (3 - 2 * t)
 }
 
 function createEngine(canvas) {
@@ -79,6 +56,8 @@ function createEngine(canvas) {
   let lastMaskKey = ''
   let remeasureTimer = 0
   let ro = null
+  let roW = 0 // 上一次 ResizeObserver 报的尺寸，见 measure() 里的说明
+  let roH = 0
 
   /* ---------- 测量 ---------- */
 
@@ -145,30 +124,11 @@ function createEngine(canvas) {
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           if (grains.length >= CFG.maxGrains) break
-          const h1 = hash2(col * 1.3 + li * 0.37, row * 2.1 + li * 0.11)
-          const h2 = hash2(col * 4.7 + li * 0.53, row * 1.9 + li * 0.29)
-          const h3 = hash2(col * 2.3 + li * 0.71, row * 5.3 + li * 0.43)
-          const h4 = hash2(col * 3.1 + li * 0.17, row * 7.7 + li * 0.61)
-          const ang = h2 * Math.PI * 2
-          const dx = Math.cos(ang)
-          const dy = Math.sin(ang)
-          // reach 让大多数沙落在附近、少数飞得很远，云才有厚薄
-          const reach = 0.08 + 0.92 * Math.pow(h4, 2.4)
           grains.push({
             x: ln.x + (col + 0.5) * (ln.w / cols),
             y: ln.y + (row + 0.5) * (ln.h / rows),
             color: ln.color,
-            d: h1 * CFG.stagger,
-            offx: dx * CFG.spread * reach,
-            offy: dy * CFG.spread * reach + CFG.gravity * CFG.spread * (0.25 + 0.75 * h4),
-            px: -dy, // 与飞散方向垂直，用来做侧向弧线
-            py: dx,
-            f1: 4 + 5 * h2, // 漂浮的两个频率与相位
-            f2: 3.5 + 5.5 * h3,
-            p1: h3 * 40,
-            p2: h2 * 40,
-            jx: (h4 - 0.5) * D * 3, // 落地前的抖动
-            jy: (h1 - 0.5) * D * 3,
+            ...makeGrain(col, row, li, CFG),
           })
         }
       }
@@ -178,7 +138,27 @@ function createEngine(canvas) {
 
     endAt = (maxY - y0) / CFG.speed + CFG.settle
     resizeCanvas()
-    ro = new ResizeObserver(scheduleRemeasure)
+    // 监听尺寸变化，字体到位或换行变化时重新铺沙。
+    // 首次 observe() 一定会立刻回调一次，那次只用来记基准尺寸、不触发重测——
+    // 否则就是：measure() → observe() → 回调 → scheduleRemeasure() → 150ms 后
+    // measure() → observe() …… 每 150ms 空转一轮，每秒白白重建七次上万颗沙粒，
+    // 而且每轮 resizeCanvas() 都会把画布清空一次，首页会闪。
+    let primed = false
+    ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect
+      const w = Math.round(r.width)
+      const h = Math.round(r.height)
+      if (!primed) {
+        primed = true
+        roW = w
+        roH = h
+        return
+      }
+      if (w === roW && h === roH) return
+      roW = w
+      roH = h
+      scheduleRemeasure()
+    })
     ro.observe(target)
   }
 
@@ -232,49 +212,24 @@ function createEngine(canvas) {
     ctx.clearRect(0, 0, W, H)
     if (!target) return
     const topV = target.getBoundingClientRect().top // 元素顶边此刻在视口里的位置
-    const tt = (performance.now() / 1000) * CFG.drift
-    const driftAmp = CFG.spread * 0.05 + 2.5
-    const sizeEnd = CFG.density * CFG.grow
+    const now = performance.now() / 1000
     let lastColor = ''
 
     for (const g of grains) {
       const t = grainT(g, elapsed)
       if (t >= 0.9995) continue // 已经完全落位，交给 mask 里的真实文字
-      const e = 1 - Math.pow(1 - t, 3)
-
-      const hx = g.x
-      const hy = g.y + topV
-      const scx = hx + g.offx
-      const scy = hy + g.offy
-      let x = scx + (hx - scx) * e
-      let y = scy + (hy - scy) * e
-
-      const arc = Math.sin(e * Math.PI) * CFG.swirl
-      x += g.px * arc
-      y += g.py * arc
-
-      const amp = (1 - e) * driftAmp
-      x += Math.sin(tt * g.f1 + g.p1) * amp
-      y += Math.cos(tt * g.f2 + g.p2) * amp
-
-      const jit = 1 - smoothstep(0.5, 0.85, t)
-      x += g.jx * jit
-      y += g.jy * jit
-
+      const st = grainState(g, t, now, CFG)
+      if (st.alpha <= 0.01) continue
+      const x = g.x + st.dx
+      const y = g.y + topV + st.dy
       if (x < -40 || x > W + 40 || y < -40 || y > H + 40) continue
-
-      const size = CFG.size + (sizeEnd - CFG.size) * smoothstep(0.55, 1, e)
-      // 落地前淡出。原版是靠沙粒长到盖满格子、真实内容无缝接管，
-      // 我们拿不到内容像素，所以改成淡出，避免最后一帧"啪"地跳一下。
-      const a = (CFG.fade + (1 - CFG.fade) * e) * (1 - smoothstep(0.9, 0.9995, t))
-      if (a <= 0.01) continue
 
       if (g.color !== lastColor) {
         ctx.fillStyle = g.color
         lastColor = g.color
       }
-      ctx.globalAlpha = a
-      ctx.fillRect(x - size / 2, y - size / 2, size, size)
+      ctx.globalAlpha = st.alpha
+      ctx.fillRect(x - st.size / 2, y - st.size / 2, st.size, st.size)
     }
     ctx.globalAlpha = 1
   }
