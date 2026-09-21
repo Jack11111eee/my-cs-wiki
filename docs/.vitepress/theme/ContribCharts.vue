@@ -508,9 +508,9 @@ onBeforeUnmount(() => {
   .contrib .chart-split { grid-template-columns: 1fr; gap: 18px; }
 }
 /* 面积与漏斗是竖构图（原生 viewBox 400×320 / 400×330），撑满宽栏会长得过高、
-   把另外两张横构图压没，所以限宽居中。限到 760px 时面积图发丝间距还有约
-   11px、漏斗整行命中区仍有 360px 宽，命中都很舒服。 */
-.contrib .chart-card--narrow svg { max-width: 760px; margin: 0 auto; }
+   把另外两张横构图压没，所以限宽居中。860px 时面积图约 690px 高，发丝间距
+   约 13px、漏斗整行命中区仍有 360px 宽，命中都很舒服。 */
+.contrib .chart-card--narrow svg { max-width: 860px; margin: 0 auto; }
 
 .contrib svg { width: 100%; height: auto; display: block; }
 .contrib svg text { font-family: var(--vp-font-family-base); }
