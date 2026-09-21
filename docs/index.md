@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: my-cs-wiki
-  text: 我的计算机经验总结
+  text: 比特碎金笺
   tagline: 「どれほどの速さで生きれば、きみにまた会えるのか。」
 
 features:

@@ -1,6 +1,6 @@
 # my-cs-wiki
 
-我的计算机经验总结。
+比特碎金笺。
 
 在线阅读：https://jack11111eee.github.io/my-cs-wiki/
 
