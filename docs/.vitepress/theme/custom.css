@@ -222,6 +222,16 @@
   background-color: transparent !important;
 }
 
+/* 顶栏菜单项对齐。
+   .VPNavBarMenuLink 被下面那条规则压成 32px 高的小胶囊，而下拉组
+   （.VPNavBarMenuGroup）自己撑满 64px。父层 .VPNavBarMenu 是
+   align-items: normal（≈stretch），32px 的项撑不满就贴到了顶栏上沿，
+   比下拉组高出 16px——「心得」和「动态」于是不在一条线上。
+   给父层加 align-items: center，两者都以 64px 的中线对齐。 */
+.VPNavBarMenu {
+  align-items: center;
+}
+
 /* 导航链接的反馈挪到悬停时才出现，平时顶栏没有色块。
    .VPNavBarMenuLink 的 scoped 样式写了 line-height: var(--vp-nav-height)，
    盒子会撑满整条顶栏（64px），直接加底色是一大块；这里压到 32px 做圆角小块。 */
