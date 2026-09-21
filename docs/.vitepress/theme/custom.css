@@ -342,6 +342,13 @@
   max-width: 700px !important;
 }
 
+/* 动态页破例放宽到 880px：热力图原生 viewBox 840 宽，700 栏里会缩到 83%，
+   静默日的小点（原生 r=.75）只剩 0.6px 左右就看不见了，而那正是这张图
+   一半的信息量。pageClass 挂在 .Layout 上，是 .VPContent 的祖先。 */
+.activity-wide .content-container {
+  max-width: 880px !important;
+}
+
 /* ===== 首页卡片 =====
    VPFeature.vue 的 scoped 样式用 --vp-c-bg-soft 同时做背景和边框（权重 0,2,0），
    压过普通的 .VPFeature（0,1,0）——所以边框和 hover 都要 !important 才生效。 */

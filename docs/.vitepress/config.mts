@@ -8,19 +8,30 @@ export default defineConfig({
 
   themeConfig: {
     nav: [
-      { text: '科研', link: '/research' },
-      { text: '项目', link: '/project' },
-      { text: '与 AI 协作', link: '/ai-collab' },
+      {
+        text: '心得',
+        items: [
+          { text: '科研', link: '/insights/research' },
+          { text: '项目', link: '/insights/project' },
+          { text: '与 AI 协作', link: '/insights/ai-collab' },
+        ],
+      },
+      { text: '动态', link: '/activity' },
     ],
 
     sidebar: [
       {
-        text: '目录',
+        text: '心得',
+        collapsed: false,
         items: [
-          { text: '科研', link: '/research' },
-          { text: '项目', link: '/project' },
-          { text: '与 AI 协作', link: '/ai-collab' },
+          { text: '科研', link: '/insights/research' },
+          { text: '项目', link: '/insights/project' },
+          { text: '与 AI 协作', link: '/insights/ai-collab' },
         ],
+      },
+      {
+        text: '动态',
+        items: [{ text: '贡献图表', link: '/activity' }],
       },
     ],
 
