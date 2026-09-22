@@ -1,6 +1,7 @@
 <script setup>
 import DefaultTheme from 'vitepress/theme'
 import Backdrop from './Backdrop.vue'
+import FallingFx from './FallingFx.vue'
 import PetalDissolve from './PetalDissolve.vue'
 import HomeCondense from './HomeCondense.vue'
 import SiteFooter from './SiteFooter.vue'
@@ -12,6 +13,7 @@ const { Layout } = DefaultTheme
   <Layout>
     <template #layout-top>
       <Backdrop />
+      <FallingFx />
       <PetalDissolve />
       <HomeCondense />
     </template>
