@@ -396,6 +396,13 @@
       否则加宽的卡片会直接压到它上面（动态页只有 h1，目录本来就是空的）。
    3) 不能用 100vw 换宽度。100vw 含滚动条，1440 视口下会多出 24px 横向溢出。
       改成 width:100% 让它跟着父层走，就没有这个问题。
+   4) **左边距不能动。** 普通页的 h1 离侧栏那条竖分隔线 64px
+      （.VPDoc 32 + .content 32，两层都是 VitePress 默认值）。早先这里把左侧
+      也一并清成 0，动态页的 h1 就只剩 24px，比别的页面往左凸出 40px——
+      切页面时标题会「跳」一下。所以只让右侧，左侧保持默认，
+      和其余页面同源（而不是硬写一个 64，免得 VitePress 改默认值时对不上）。
+      代价是少 40px 宽度：1440 视口下 1096 → 1056px，热力图 1032 → 992px、
+      静默日小点 1.84 → 1.77px。仍远好于默认的 700px 栏，可以接受。
 
    宽度随视口自然增长，2560px 时到 1400px 上限，热力图 1336px、
    静默日小点直径 2.39px —— 正好是 Mono 原样的尺度（那边画廊 1400px 通栏、
@@ -409,13 +416,12 @@
     padding-right: 0 !important;
   }
 
+  /* 只让右侧。padding-left 一律不动——见上面第 4 条。 */
   .activity-wide .VPDoc {
-    padding-left: 0 !important;
     padding-right: 0 !important;
   }
 
   .activity-wide .VPDoc .content {
-    padding-left: 24px !important;
     padding-right: 24px !important;
   }
 
