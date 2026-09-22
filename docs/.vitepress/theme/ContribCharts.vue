@@ -412,10 +412,7 @@ onBeforeUnmount(() => {
     </section>
 
     <p class="contrib-foot">
-      {{ N }} 天 · 合计 {{ TOTAL.toLocaleString() }} 次贡献 · 数据抓取于 {{ CONTRIB.fetchedAt }}<template
-        v-if="CONTRIB.source && CONTRIB.source !== 'graphql'"
-      >（{{ CONTRIB.source === 'html' ? 'HTML 回退，数字与 GraphQL 源有 1–3 的漂移' : '仓库快照' }}）</template>。
-      每日自动刷新；本地重跑 <code>scripts/fetch-contrib.mjs</code> 也可更新。
+      {{ N }} 天 · 合计 {{ TOTAL.toLocaleString() }} 次贡献 · 数据抓取于 {{ CONTRIB.fetchedAt }}
     </p>
   </div>
 </template>
@@ -551,14 +548,6 @@ onBeforeUnmount(() => {
   line-height: 1.8;
   color: var(--vp-c-text-3);
   margin-top: -8px;
-}
-.contrib .contrib-foot code {
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  background: var(--vp-code-bg);
-  color: var(--vp-code-color);
-  padding: 2px 6px;
-  border-radius: 5px;
 }
 
 /* 入场动画（Mono MOTION.css 原样） */

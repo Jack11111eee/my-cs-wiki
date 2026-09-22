@@ -4,22 +4,48 @@
    白天 = 樱花（浅色，无 .dark）；夜晚 = 雪夜（.dark，VitePress 自带切换按钮控制）
    ============================================================================ */
 
-/* ===== 全屏远景 + 磨砂玻璃 =====
-   底图必须是真实 DOM 元素，不能改成 body 的 background-image：
-   body 的背景会传播到 canvas，那样 backdrop-filter 采不到它，模糊会失效。
+/* ===== 全屏远景 + 落樱 + 磨砂玻璃 =====
+   四层 position:fixed 的叶子节点，靠 z-index 排：
+     1  底图（白天樱花 / 夜晚雪夜，切换时交叉淡入）
+     2  落樱 / 落雪（见 FallingFx.vue）
+     3  磨砂玻璃
+     4  内容（在 custom.css 里给 .VPContent 加）
    层叠预算见下方 .VPContent。 */
 .wiki-bg,
+.wiki-fx,
 .wiki-glass {
   position: fixed;
   inset: 0;
   pointer-events: none;
 }
 
+/* 模糊从玻璃（backdrop-filter）挪到了底图自己（filter）。
+   原因是粒子层插在玻璃下面之后，粒子每帧一动就把玻璃的采样源标脏，
+   整屏模糊一秒要重算几十次——实测「模糊 + 动画」叠一起是 GPU 99% 忙、18% 掉帧，
+   而单独任一半只有 20% / 25%（见 design-refs/falling-fx/SPEC.md 第 1 节）。
+   挪成底图自己的 filter 之后模糊算一次就缓存住。
+   代价：花瓣不再被真高斯糊过（它在玻璃之上、底图之下），柔度改由
+   FallingFx.vue 的 bake() 烘进精灵里。 */
 .wiki-bg {
   z-index: 1;
+  /* 比视口四面各大 24px，专门给下面那层 blur 留余量。
+     blur 在元素边界外没有东西可采，会把边缘往透明平均，四边糊出一圈发白的渐隐。
+     实测（1440×695，blur 10px）不放大时最外一列比应有值亮 6.8/255，往内 16px 才落回，
+     肉眼就是贴着边框的一条浅带（4× 放大下很明显；夜里底图和 body 同为深蓝，看不出来）。
+
+     为什么不干脆留 0：这条带子是**有形状**的，眼睛对边框上的带子远比对比背景的整体位移敏感。
+     放大的代价是 cover 的裁切跟着放大（1440→1488 宽、695→743 高，约 3~7%），
+     整个底图被平滑地挪了一点——内部平均差 3.1/255，但散在全图、无结构，对照着看也看不出来。
+     实测 -32px 反而更差：位移更大（内部 3.9/255），边带却没再改善，所以 24px 就是拐点。
+     纯 CSS 没有「不缩放又能往外延」的写法（背景是要跟着元素一起变大的），
+     真要做到零位移零边带得用 SVG feGaussianBlur 的 edgeMode="duplicate"，
+     但那会丢掉 CSS blur 的硬件加速，正好和这次改动要省的东西相反。 */
+  inset: -24px;
   background-size: cover;
   background-position: center center;
   background-repeat: no-repeat;
+  filter: blur(10px) saturate(1.2);
+  -webkit-filter: blur(10px) saturate(1.2);
   transition: opacity 0.6s ease;
 }
 
@@ -29,11 +55,16 @@
 .dark .wiki-bg--day { opacity: 0; }
 .dark .wiki-bg--night { opacity: 1; }
 
+/* 落樱 / 落雪。夹在底图（1）和玻璃（3）之间，所以是被玻璃那层 68% 的白洗淡过的
+   柔光，像窗外落樱，不会盖到正文上。CSS 尺寸（style.width/height）由脚本设，
+   这里只定位置和层级。 */
+.wiki-fx {
+  z-index: 2;
+}
+
 .wiki-glass {
   z-index: 3;
   background-color: var(--wiki-glass);
-  backdrop-filter: blur(10px) saturate(1.2);
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
   transition: background-color 0.6s ease;
 }
 
@@ -365,6 +396,13 @@
       否则加宽的卡片会直接压到它上面（动态页只有 h1，目录本来就是空的）。
    3) 不能用 100vw 换宽度。100vw 含滚动条，1440 视口下会多出 24px 横向溢出。
       改成 width:100% 让它跟着父层走，就没有这个问题。
+   4) **左边距不能动。** 普通页的 h1 离侧栏那条竖分隔线 64px
+      （.VPDoc 32 + .content 32，两层都是 VitePress 默认值）。早先这里把左侧
+      也一并清成 0，动态页的 h1 就只剩 24px，比别的页面往左凸出 40px——
+      切页面时标题会「跳」一下。所以只让右侧，左侧保持默认，
+      和其余页面同源（而不是硬写一个 64，免得 VitePress 改默认值时对不上）。
+      代价是少 40px 宽度：1440 视口下 1096 → 1056px，热力图 1032 → 992px、
+      静默日小点 1.84 → 1.77px。仍远好于默认的 700px 栏，可以接受。
 
    宽度随视口自然增长，2560px 时到 1400px 上限，热力图 1336px、
    静默日小点直径 2.39px —— 正好是 Mono 原样的尺度（那边画廊 1400px 通栏、
@@ -378,13 +416,12 @@
     padding-right: 0 !important;
   }
 
+  /* 只让右侧。padding-left 一律不动——见上面第 4 条。 */
   .activity-wide .VPDoc {
-    padding-left: 0 !important;
     padding-right: 0 !important;
   }
 
   .activity-wide .VPDoc .content {
-    padding-left: 24px !important;
     padding-right: 24px !important;
   }
 
