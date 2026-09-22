@@ -3,6 +3,12 @@ name: Deploy VitePress site to Pages
 on:
   push:
     branches: [main]
+  schedule:
+    # 每天 UTC 03:17 重建一次，刷新贡献数据。
+    # 避开整点：GitHub 的 cron 在整点最挤，排队会明显延迟。
+    # 注意：仓库连续 60 天无活动，GitHub 会停用 schedule（会发邮件），
+    # 到时候在 Actions 页面手动跑一次 workflow_dispatch 就能恢复。
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +31,16 @@ jobs:
           cache: npm
       - uses: actions/configure-pages@v5
       - run: npm ci
+      # 取最新贡献数据，写进 docs/.vitepress/theme/contrib-data.js 再构建。
+      # 脚本自己有三条降级：GraphQL → HTML 抓取 → 保留仓库里的快照。
+      # continue-on-error：即使三级全挂也不拦部署，页面上的「数据抓取于 X」
+      # 会如实停在旧日期，不会假装是新的。
+      - name: Refresh contribution data
+        continue-on-error: true
+        env:
+          # 配了 CONTRIB_TOKEN 就用它；没配就退回 Actions 自带的 token
+          GH_TOKEN: ${{ secrets.CONTRIB_TOKEN || github.token }}
+        run: node scripts/fetch-contrib.mjs
       - run: npm run docs:build
       - uses: actions/upload-pages-artifact@v3
         with:

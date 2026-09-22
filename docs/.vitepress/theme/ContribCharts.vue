@@ -412,8 +412,10 @@ onBeforeUnmount(() => {
     </section>
 
     <p class="contrib-foot">
-      {{ N }} 天 · 合计 {{ TOTAL.toLocaleString() }} 次贡献 · 数据抓取于 {{ CONTRIB.fetchedAt }}。
-      滚动一年窗口，隔一段时间数字会变，重跑 <code>scripts/fetch-contrib.mjs</code> 即可更新。
+      {{ N }} 天 · 合计 {{ TOTAL.toLocaleString() }} 次贡献 · 数据抓取于 {{ CONTRIB.fetchedAt }}<template
+        v-if="CONTRIB.source && CONTRIB.source !== 'graphql'"
+      >（{{ CONTRIB.source === 'html' ? 'HTML 回退，数字与 GraphQL 源有 1–3 的漂移' : '仓库快照' }}）</template>。
+      每日自动刷新；本地重跑 <code>scripts/fetch-contrib.mjs</code> 也可更新。
     </p>
   </div>
 </template>
