@@ -412,7 +412,7 @@ onBeforeUnmount(() => {
     </section>
 
     <p class="contrib-foot">
-      {{ N }} 天 · 合计 {{ TOTAL.toLocaleString() }} 次贡献
+      {{ N }} 天 · 合计 {{ TOTAL.toLocaleString() }} 次贡献 · 数据抓取于 {{ CONTRIB.fetchedAt }}
     </p>
   </div>
 </template>
