@@ -1,4 +1,5 @@
-# Sveltia CMS 配置。后台地址：https://jack11111eee.github.io/my-cs-wiki/admin/
+# Sveltia CMS 配置。本地后台：`npm run admin` 后打开 http://localhost:4173/
+# 不部署到公网，所以站点上没有 /admin 路由。
 # 登录方式只用 PAT（个人访问令牌），不走 Netlify 的 OAuth 代理。
 backend:
   name: github

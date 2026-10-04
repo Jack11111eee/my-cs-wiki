@@ -4,7 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
-    <title>内容后台</title>
+    <title>内容后台（本地）</title>
+    <!-- 显式指定配置位置，本地从任意路径起服务都能加载 -->
+    <link rel="cms-config-url" href="./config.yml" type="application/yaml" />
   </head>
   <body>
     <script src="https://unpkg.com/@sveltia/cms/dist/sveltia-cms.js"></script>
