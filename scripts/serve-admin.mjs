@@ -41,7 +41,8 @@ createServer(async (req, res) => {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
     res.end('not found')
   }
-}).listen(port, () => {
+}).listen(port, '127.0.0.1', () => {
   console.log(`内容后台已启动：http://localhost:${port}/`)
+  console.log('只绑本机回环，同网段的其他设备访问不到。')
   console.log('编辑保存会用 PAT 直连 GitHub 提交，无需本地 commit + push。Ctrl+C 退出。')
 })
