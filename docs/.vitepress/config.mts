@@ -1,5 +1,21 @@
 import { defineConfig } from 'vitepress'
 
+// 心得页的内容存在 frontmatter 的 notes 列表里（便于 Sveltia CMS 逐条编辑）。
+// 这里在构建时把它还原成正文的「标题 + 有序列表」，渲染结果与原稿一致。
+function insightsNotesPlugin(md: any) {
+  md.core.ruler.push('insights-notes', (state: any) => {
+    const { title, notes } = state.env?.frontmatter ?? {}
+    if (!Array.isArray(notes) || state.env?.__insightsRendered) return
+
+    const head = title ? `# ${title}\n\n` : ''
+    const list = notes
+      .map((note: string) => `1. ${String(note).replace(/\n/g, '\n   ')}`)
+      .join('\n')
+
+    state.tokens = md.parse(head + list, { ...state.env, __insightsRendered: true })
+  })
+}
+
 export default defineConfig({
   lang: 'zh-CN',
   title: 'my-cs-wiki',
@@ -40,5 +56,11 @@ export default defineConfig({
     returnToTopLabel: '回到顶部',
     sidebarMenuLabel: '目录',
     darkModeSwitchLabel: '主题',
+  },
+
+  markdown: {
+    config: (md) => {
+      md.use(insightsNotesPlugin)
+    },
   },
 })

@@ -1,0 +1,51 @@
+# Sveltia CMS 配置。后台地址：https://jack11111eee.github.io/my-cs-wiki/admin/
+# 登录方式只用 PAT（个人访问令牌），不走 Netlify 的 OAuth 代理。
+backend:
+  name: github
+  repo: Jack11111eee/my-cs-wiki
+  branch: main
+  auth_methods: [token]
+
+# 上传的图片落到 VitePress 的 public 目录，正文里用带 base 的路径引用
+media_folder: docs/public/media
+public_folder: /my-cs-wiki/media
+
+collections:
+  - name: insights
+    label: 心得
+    label_singular: 心得
+    icon: article
+    folder: docs/insights
+    # 不通过后台新建/删除文件：新分类要先确认，按 CLAUDE.md 的规矩来
+    create: false
+    delete: false
+    fields:
+      - name: title
+        label: 标题
+        widget: string
+      - name: notes
+        label: 条目
+        label_singular: 条目
+        widget: list
+        field:
+          name: note
+          widget: text
+
+  - name: site
+    label: 站点
+    icon: description
+    files:
+      - name: readme
+        label: 索引（README）
+        file: README.md
+        fields:
+          - name: body
+            label: 正文
+            widget: markdown
+      - name: activity
+        label: 动态（贡献图表）
+        file: docs/activity.md
+        fields:
+          - name: body
+            label: 正文
+            widget: markdown
